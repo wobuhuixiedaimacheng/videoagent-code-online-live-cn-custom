@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Web 工具 · lanshu-awesome-ai-video-kit</title>
+<meta name="description" content="3 个零依赖单页 HTML 工具:提示词浏览器、跨模型矩阵、主页。">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/site-theme.css">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  .wrap { position: relative; z-index: 1; max-width: 1100px; margin: 0 auto; padding: 0 24px; }
+
+  .hero { padding: 140px 0 36px; text-align: center; }
+  .hero-eyebrow { display: inline-block; font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--m-so); font-weight: 600; padding: 6px 14px; border-radius: var(--r-full);
+    background: rgba(52,211,153,0.12); border: 1px solid var(--glass-border); }
+  .hero h1 { font-size: clamp(32px, 5vw, 48px); font-weight: 800; line-height: 1.15;
+    margin-top: 20px; letter-spacing: -0.02em; color: var(--text-primary); }
+  .hero h1 .grad { background: linear-gradient(135deg, var(--m-so), var(--m-hl));
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+  .hero p { margin-top: 14px; color: var(--text-secondary); font-size: 16px; line-height: 1.6;
+    max-width: 680px; margin-left: auto; margin-right: auto; }
+
+  .section { padding: 36px 0; position: relative; z-index: 1; }
+
+  .tool-grid { display: grid; grid-template-columns: 1fr; gap: 16px; }
+  .tool-card { display: grid; grid-template-columns: 96px 1fr auto; gap: 24px; align-items: center;
+    padding: 28px; background: var(--glass-1); border: 1px solid var(--glass-border); border-radius: var(--r-lg);
+    text-decoration: none; color: var(--text-primary); transition: all .2s; position: relative; overflow: hidden;
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+  .tool-card::before { content: ''; position: absolute; inset: 0;
+    background: linear-gradient(135deg, var(--glow, rgba(52,211,153,0.10)), transparent 60%);
+    opacity: 0; transition: opacity .25s; pointer-events: none; }
+  .tool-card:hover { background: var(--glass-2); border-color: var(--border, rgba(52,211,153,0.3));
+    transform: translateY(-2px); }
+  .tool-card:hover::before { opacity: 1; }
+  .tool-icon { width: 80px; height: 80px; border-radius: var(--r-md); display: grid; place-items: center;
+    background: linear-gradient(135deg, var(--icon-from), var(--icon-to));
+    box-shadow: 0 10px 30px var(--icon-shadow); }
+  .tool-icon svg { width: 36px; height: 36px; color: white; }
+  .tool-body h3 { font-size: 20px; font-weight: 700; margin-bottom: 6px; letter-spacing: -0.01em; color: var(--text-primary); }
+  .tool-body h3 .badge { font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 5px;
+    margin-left: 8px; vertical-align: middle; }
+  .tool-body p { color: var(--text-secondary); font-size: 14px; line-height: 1.6; margin-bottom: 12px; }
+  .tool-feat { display: flex; gap: 8px; flex-wrap: wrap; }
+  .tool-feat span { font-size: 11px; padding: 3px 9px; border-radius: 6px;
+    background: var(--glass-2); color: var(--text-muted); }
+  .tool-arrow { font-size: 28px; color: var(--text-muted); transition: color .2s, transform .2s; }
+  .tool-card:hover .tool-arrow { color: var(--m-so); transform: translateX(4px); }
+
+  .info-box { padding: 18px 22px; background: var(--glass-1); border: 1px solid var(--glass-border);
+    border-radius: var(--r-md); color: var(--text-secondary); font-size: 13.5px; line-height: 1.7;
+    margin-top: 24px; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+  .info-box b { color: var(--text-primary); }
+  .info-box code { font-family: 'JetBrains Mono', monospace; font-size: 12.5px;
+    background: var(--glass-2); padding: 2px 6px; border-radius: 4px; color: var(--m-so); }
+
+  footer { margin-top: 80px; padding: 30px 0; border-top: 1px solid var(--glass-border);
+    text-align: center; font-size: 13px; color: var(--text-muted); position: relative; z-index: 1; }
+  footer a { color: var(--m-so); text-decoration: none; }
+  footer a:hover { text-decoration: underline; }
+
+  @media (max-width: 720px) {
+    .hero { padding: 110px 0 24px; }
+    .tool-card { grid-template-columns: 1fr; text-align: center; }
+    .tool-icon { justify-self: center; }
+    .tool-arrow { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<nav class="top">
+  <a class="brand" href="../"><span class="brand-dot"></span><span>lanshu-video-kit</span></a>
+  <a class="nav-link" href="../methodology/">📖 Methodology</a>
+  <a class="nav-link" href="../prompts/">📚 Prompts</a>
+  <a class="nav-link" href="../skills/">🛠️ Skills</a>
+  <a class="nav-link" href="prompt-browser/">🌐 Browser</a>
+  <a class="nav-link" href="cross-model/">🔀 Matrix</a>
+  <a class="nav-link cta" href="../">⌂ 主页</a>
+  <button class="nav-icon-btn" id="themeToggle" title="切换主题" aria-label="切换主题">
+    <svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+    </svg>
+  </button>
+</nav>
+
+<section class="hero">
+  <div class="wrap">
+    <div class="hero-eyebrow">🌐 Web Tools</div>
+    <h1>3 个<span class="grad">零依赖单页 HTML 工具</span></h1>
+    <p>纯静态 · 离线可用 · 无构建 · 直接在 GitHub Pages 上跑。配合本地的 <code style="font-family:'JetBrains Mono',monospace;padding:2px 6px;background:var(--glass-2);border-radius:4px;font-size:13px">python3 serve.py</code> 也能跑。</p>
+  </div>
+</section>
+
+<section class="section">
+  <div class="wrap">
+    <div class="tool-grid">
+      <a class="tool-card" href="prompt-browser/"
+         style="--icon-from:#a78bfa;--icon-to:#f472b6;--icon-shadow:rgba(167,139,250,0.4);--glow:rgba(167,139,250,0.10);--border:rgba(167,139,250,0.3)">
+        <span class="tool-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        </span>
+        <div class="tool-body">
+          <h3>Prompt Browser <span class="badge" style="background:rgba(167,139,250,0.2);color:#c4b5fd">v2</span></h3>
+          <p>433 条提示词的浏览器。15 模型彩虹筛选 + URL 状态分享 + 键盘导航(j/k/Enter/c)+ Drawer 详情卡 + 暗/亮主题。</p>
+          <div class="tool-feat">
+            <span>15 模型彩虹</span><span>三维筛选</span><span>URL 状态</span><span>键盘导航</span><span>暗/亮主题</span>
+          </div>
+        </div>
+        <span class="tool-arrow">→</span>
+      </a>
+
+      <a class="tool-card" href="cross-model/"
+         style="--icon-from:#f472b6;--icon-to:#ec4899;--icon-shadow:rgba(244,114,182,0.4);--glow:rgba(244,114,182,0.10);--border:rgba(244,114,182,0.3)">
+        <span class="tool-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+        </span>
+        <div class="tool-body">
+          <h3>Cross-Model Matrix <span class="badge" style="background:rgba(244,114,182,0.2);color:#f9a8d4">v2 ★</span></h3>
+          <p>同一场景在 11 商业模型上的最佳 prompt 横向对照。10 场景 × 11 模型 = 110 对照。是 prompt-translator skill 的查表基准。</p>
+          <div class="tool-feat">
+            <span>10 场景</span><span>11 模型对照</span><span>视频槽位</span><span>Liquid Glass</span><span>社区贡献</span>
+          </div>
+        </div>
+        <span class="tool-arrow">→</span>
+      </a>
+
+      <a class="tool-card" href="../"
+         style="--icon-from:#34d399;--icon-to:#06b6d4;--icon-shadow:rgba(52,211,153,0.4);--glow:rgba(52,211,153,0.10);--border:rgba(52,211,153,0.3)">
+        <span class="tool-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12l9-9 9 9M5 10v10h14V10"/></svg>
+        </span>
+        <div class="tool-body">
+          <h3>Landing Page <span class="badge" style="background:rgba(52,211,153,0.2);color:#6ee7b7">主页</span></h3>
+          <p>项目主页。Liquid Glass 风格 + Hero stats(433/16/7/21) + 15 模型墙 + 6 入口卡 + 快速开始 tab。</p>
+          <div class="tool-feat">
+            <span>Liquid Glass</span><span>15 模型墙</span><span>钻石 orb</span><span>quickstart tabs</span>
+          </div>
+        </div>
+        <span class="tool-arrow">→</span>
+      </a>
+    </div>
+
+    <div class="info-box">
+      💡 <b>本地运行</b>:在仓库根目录跑 <code>python3 serve.py 8000</code>(自带 .md 转 viewer + UTF-8 + 禁缓存),然后访问 <code>http://localhost:8000/</code>。
+      <br>所有工具都是 <b>单文件 HTML + 零依赖</b>,可以直接拷出去单独用。GitHub Pages 开启后也是这套 URL 结构。
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p>🌐 3 个 Web 工具 · 零依赖 · 离线可用 · 单文件 HTML</p>
+    <p style="margin-top:8px"><a href="../">← 返回主页</a> · <a href="../viewer.html?file=tools/README.md">README</a> · <a href="../prompts/">Prompts</a> · <a href="../skills/">Skills</a></p>
+  </div>
+</footer>
+
+<script src="/assets/site-theme.js" defer></script>
+</body>
+</html>

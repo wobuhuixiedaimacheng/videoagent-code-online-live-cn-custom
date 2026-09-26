@@ -1,0 +1,75 @@
+name: "🚀 发现新模型 / 新版本"
+description: "AI 视频模型市场迭代极快,帮我们追上!"
+title: "[新版本] <模型名> · 更新到 <新版本>"
+labels: ["update", "model-watch"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## 你发现了新版本/新模型?
+
+        本仓库当前收录 11 个主流模型。如果你发现:
+        - 已收录模型出了新主版本(如 Kling 4.0 / Runway Gen-5)
+        - 收录的版本号过时(如还在写 Wan 2.7 但官方已 2.7)
+        - 全新出的主流模型应该被收录(如 LTX Video / Higgsfield 等)
+
+        请提交这个 issue!
+
+  - type: dropdown
+    id: type
+    attributes:
+      label: "类型"
+      options:
+        - "已收录模型的新版本"
+        - "已收录模型版本号过时(需校准)"
+        - "全新模型应被收录"
+    validations:
+      required: true
+
+  - type: input
+    id: model
+    attributes:
+      label: "模型名"
+      placeholder: "Kling 4.0 / LTX Video / Higgsfield 等"
+    validations:
+      required: true
+
+  - type: input
+    id: official_url
+    attributes:
+      label: "官方文档/发布链接"
+      placeholder: "https://..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: notable_changes
+    attributes:
+      label: "关键变化 / 新能力"
+      placeholder: |
+        例如:
+        - 视频时长从 15s 提升到 60s
+        - 加入了原生中文对白
+        - 新增 Motion Brush 控制
+        - prompt 公式有改动:新增 "Lighting:" 字段
+      render: markdown
+    validations:
+      required: true
+
+  - type: input
+    id: release_date
+    attributes:
+      label: "发布日期(如果知道)"
+      placeholder: "2026-06-15"
+
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: "需要更新的范围(我们维护时参考)"
+      options:
+        - label: "prompts/data/all-prompts.json 加新模型条目"
+        - label: "prompts/data/cross-model-matrix.json 加该模型在 10 场景的对照"
+        - label: "methodology/ 加新方法论 SOP"
+        - label: "skills/ 加新模型 prompter"
+        - label: "tools/prompt-browser/ 加新模型颜色和筛选"
+        - label: "RESOURCES.md 加官方链接"

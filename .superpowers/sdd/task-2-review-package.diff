@@ -1,0 +1,795 @@
+diff --git a/.superpowers/sdd/task-2-before/lib/workspace.ts b/lib/workspace.ts
+index 9e535c5..0adb261 100644
+--- a/.superpowers/sdd/task-2-before/lib/workspace.ts
++++ b/lib/workspace.ts
+@@ -29,6 +29,42 @@ export type EntryCard = {
+   accent: string;
+ };
+ 
++const WORKFLOW_KINDS = new Set<WorkflowKind>([
++  'generate', 'rewrite', 'weekly', 'brand', 'viral_ref', 'topic', 'scene', 'script', 'shot', 'prompt',
++  'platform', 'compliance', 'approval', 'competitor', 'hotspot', 'titles', 'cta', 'live_clip', 'image_note',
++  'ad_variants', 'multiplatform', 'calendar'
++]);
++
++const WORKSPACE_FILE_KINDS = new Set<WorkspaceFile['kind']>(['json', 'markdown', 'asset', 'render', 'config']);
++
++function isWorkspaceFile(value: unknown): value is WorkspaceFile {
++  if (!value || typeof value !== 'object') return false;
++  const file = value as Partial<WorkspaceFile>;
++  return (
++    typeof file.path === 'string' &&
++    typeof file.content === 'string' &&
++    typeof file.version === 'number' &&
++    typeof file.updatedAt === 'string' &&
++    WORKSPACE_FILE_KINDS.has(file.kind as WorkspaceFile['kind'])
++  );
++}
++
++export function isWorkspaceSnapshot(value: unknown): value is WorkspaceSnapshot {
++  if (!value || typeof value !== 'object') return false;
++  const workspace = value as Partial<WorkspaceSnapshot>;
++  return (
++    typeof workspace.projectId === 'string' &&
++    typeof workspace.title === 'string' &&
++    typeof workspace.branch === 'string' &&
++    (workspace.mode === 'creator' || workspace.mode === 'smb') &&
++    WORKFLOW_KINDS.has(workspace.activeWorkflow as WorkflowKind) &&
++    Array.isArray(workspace.files) &&
++    workspace.files.every(isWorkspaceFile) &&
++    typeof workspace.currentTimelineVersion === 'number' &&
++    (workspace.complianceStatus === 'pass' || workspace.complianceStatus === 'warning' || workspace.complianceStatus === 'blocked')
++  );
++}
++
+ export function uid(prefix = 'id') {
+   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
+ }
+@@ -66,6 +102,31 @@ export function inferFileKind(path: string): WorkspaceFile['kind'] {
+   return 'config';
+ }
+ 
++export function isInternalWorkspaceFile(path: string) {
++  return path === 'production_flow.json' || path.startsWith('.aigc/');
++}
++
++export function upsertWorkspaceFile(
++  workspace: WorkspaceSnapshot,
++  path: string,
++  content: string,
++  kind: WorkspaceFile['kind'] = inferFileKind(path)
++): WorkspaceSnapshot {
++  const files = [...workspace.files];
++  const index = files.findIndex((file) => file.path === path);
++  const previous = files[index];
++  const nextFile: WorkspaceFile = {
++    path,
++    kind,
++    content,
++    version: (previous?.version || 0) + 1,
++    updatedAt: now()
++  };
++  if (index >= 0) files[index] = nextFile;
++  else files.push(nextFile);
++  return { ...workspace, files };
++}
++
+ export function applyPatchToWorkspace(
+   workspace: WorkspaceSnapshot,
+   patches: PatchOperation[],
+diff --git a/.superpowers/sdd/task-2-before/lib/workspaceDrafts.ts b/lib/workspaceDrafts.ts
+index e69de29..9b7ae6d 100644
+--- a/.superpowers/sdd/task-2-before/lib/workspaceDrafts.ts
++++ b/lib/workspaceDrafts.ts
+@@ -0,0 +1,96 @@
++import type { PatchOperation, WorkspaceSnapshot } from './types';
++import { applyPatchToWorkspace, upsertWorkspaceFile } from './workspace';
++import {
++  confirmFlowStage,
++  productionFlowFromWorkspace,
++  type ConfirmStageInput,
++  writeProductionFlow
++} from './productionFlow';
++
++export const PENDING_PATCHES_PATH = '.aigc/pending_patches.json';
++
++function isPatchOperation(value: unknown): value is PatchOperation {
++  if (!value || typeof value !== 'object') return false;
++  const patch = value as Partial<PatchOperation>;
++  return (
++    typeof patch.id === 'string' &&
++    typeof patch.filePath === 'string' &&
++    typeof patch.summary === 'string' &&
++    typeof patch.before === 'string' &&
++    typeof patch.after === 'string' &&
++    (patch.riskLevel === 'low' || patch.riskLevel === 'medium' || patch.riskLevel === 'high') &&
++    typeof patch.requiresApproval === 'boolean'
++  );
++}
++
++export function readPendingPatches(workspace: WorkspaceSnapshot | null): PatchOperation[] {
++  const content = workspace?.files.find((file) => file.path === PENDING_PATCHES_PATH)?.content;
++  if (!content) return [];
++
++  try {
++    const parsed = JSON.parse(content);
++    return Array.isArray(parsed) ? parsed.filter(isPatchOperation) : [];
++  } catch {
++    return [];
++  }
++}
++
++export function savePendingPatches(workspace: WorkspaceSnapshot, patches: PatchOperation[]): WorkspaceSnapshot {
++  return upsertWorkspaceFile(workspace, PENDING_PATCHES_PATH, JSON.stringify(patches, null, 2), 'json');
++}
++
++export function appendPendingPatches(workspace: WorkspaceSnapshot, patches: PatchOperation[]): WorkspaceSnapshot {
++  const latestByFile = new Map<string, PatchOperation>();
++  for (const patch of readPendingPatches(workspace)) latestByFile.set(patch.filePath, patch);
++  for (const patch of patches) latestByFile.set(patch.filePath, patch);
++  return savePendingPatches(workspace, [...latestByFile.values()]);
++}
++
++export function pendingPatchesForFiles(workspace: WorkspaceSnapshot, filePaths: string[]): PatchOperation[] {
++  const paths = new Set(filePaths);
++  return readPendingPatches(workspace).filter((patch) => paths.has(patch.filePath));
++}
++
++export function autopilotPatchesForRun(
++  workspace: WorkspaceSnapshot,
++  currentRunPatches: PatchOperation[]
++): PatchOperation[] {
++  const currentRunIds = new Set(
++    currentRunPatches.filter((patch) => patch.riskLevel === 'low').map((patch) => patch.id)
++  );
++  return readPendingPatches(workspace).filter(
++    (patch) => patch.riskLevel === 'low' && currentRunIds.has(patch.id)
++  );
++}
++
++export function applyPatchesForPreview(
++  workspace: WorkspaceSnapshot | null,
++  patches: PatchOperation[]
++): WorkspaceSnapshot | null {
++  if (!workspace || !patches.length) return workspace;
++  return applyPatchToWorkspace(workspace, patches, workspace.complianceStatus);
++}
++
++export function consumePendingPatches(
++  workspace: WorkspaceSnapshot,
++  filePaths: string[],
++  complianceStatus: WorkspaceSnapshot['complianceStatus'] = workspace.complianceStatus
++): { workspace: WorkspaceSnapshot; applied: PatchOperation[] } {
++  const paths = new Set(filePaths);
++  const pending = readPendingPatches(workspace);
++  const applied = pending.filter((patch) => paths.has(patch.filePath));
++  if (!applied.length) return { workspace, applied };
++
++  const remaining = pending.filter((patch) => !paths.has(patch.filePath));
++  const withAppliedPatches = applyPatchToWorkspace(workspace, applied, complianceStatus);
++  return { workspace: savePendingPatches(withAppliedPatches, remaining), applied };
++}
++
++export function confirmStageInWorkspace(
++  workspace: WorkspaceSnapshot,
++  input: ConfirmStageInput & { outputFiles: string[] }
++): { workspace: WorkspaceSnapshot; applied: PatchOperation[] } {
++  const consumed = consumePendingPatches(workspace, input.outputFiles);
++  const flow = confirmFlowStage(productionFlowFromWorkspace(consumed.workspace), input);
++  return { workspace: writeProductionFlow(consumed.workspace, flow), applied: consumed.applied };
++}
+diff --git a/.superpowers/sdd/task-2-before/lib/workspaceDrafts.test.cjs b/lib/workspaceDrafts.test.cjs
+index e69de29..575d099 100644
+--- a/.superpowers/sdd/task-2-before/lib/workspaceDrafts.test.cjs
++++ b/lib/workspaceDrafts.test.cjs
+@@ -0,0 +1,121 @@
++const assert = require('node:assert/strict');
++const fs = require('node:fs');
++const path = require('node:path');
++const test = require('node:test');
++const ts = require('typescript');
++const {
++  workspaceWith,
++  patch,
++  readyFlow,
++  confirmationInput,
++  parseFile
++} = require('./testFixtures.cjs');
++
++function loadWorkspaceDraftsModule() {
++  const filePath = path.join(__dirname, 'workspaceDrafts.ts');
++  assert.equal(fs.existsSync(filePath), true, 'workspaceDrafts.ts should define pending patch persistence');
++
++  require.extensions['.ts'] = (module, modulePath) => {
++    const source = fs.readFileSync(modulePath, 'utf8');
++    const output = ts.transpileModule(source, {
++      compilerOptions: {
++        module: ts.ModuleKind.CommonJS,
++        target: ts.ScriptTarget.ES2020
++      }
++    }).outputText;
++    module._compile(output, modulePath);
++  };
++
++  delete require.cache[filePath];
++  delete require.cache[path.join(__dirname, 'workspace.ts')];
++  delete require.cache[path.join(__dirname, 'productionFlow.ts')];
++  return require(filePath);
++}
++
++function getFile(workspace, filePath) {
++  return workspace.files.find((file) => file.path === filePath);
++}
++
++test('pending patches survive workspace serialization', () => {
++  const { savePendingPatches, readPendingPatches } = loadWorkspaceDraftsModule();
++  const withDrafts = savePendingPatches(workspaceWith(), [patch('script.md', '# 新脚本')]);
++  const restored = JSON.parse(JSON.stringify(withDrafts));
++  assert.equal(readPendingPatches(restored)[0].filePath, 'script.md');
++});
++
++test('confirming one stage consumes only that stages patches', () => {
++  const { savePendingPatches, consumePendingPatches, readPendingPatches } = loadWorkspaceDraftsModule();
++  const source = savePendingPatches(workspaceWith(), [
++    patch('characters.json', '{"characters":[]}'),
++    patch('compliance_report.json', '{"status":"warning"}')
++  ]);
++  const result = consumePendingPatches(source, ['characters.json']);
++  assert.equal(getFile(result.workspace, 'characters.json').version, 1);
++  assert.deepEqual(readPendingPatches(result.workspace).map((item) => item.filePath), ['compliance_report.json']);
++});
++
++test('appending a newer patch replaces the older draft for the same file', () => {
++  const { savePendingPatches, appendPendingPatches, readPendingPatches } = loadWorkspaceDraftsModule();
++  const source = savePendingPatches(workspaceWith(), [patch('scenes.json', 'v1')]);
++  const next = appendPendingPatches(source, [patch('scenes.json', 'v2')]);
++  assert.equal(readPendingPatches(next)[0].after, 'v2');
++});
++
++test('preview applies pending patches without mutating the stored workspace', () => {
++  const { applyPatchesForPreview } = loadWorkspaceDraftsModule();
++  const workspace = workspaceWith({ 'script.md': 'v1' });
++  const preview = applyPatchesForPreview(workspace, [patch('script.md', 'v2', 'v1')]);
++  assert.equal(getFile(preview, 'script.md').content, 'v2');
++  assert.equal(getFile(workspace, 'script.md').content, 'v1');
++});
++
++test('confirming a stage writes the consumed assets and next flow in one snapshot', () => {
++  const { savePendingPatches, confirmStageInWorkspace, readPendingPatches } = loadWorkspaceDraftsModule();
++  const source = savePendingPatches(workspaceWith({
++    'production_flow.json': JSON.stringify(readyFlow('script', 1))
++  }), [patch('script.md', '# 已确认脚本')]);
++  const result = confirmStageInWorkspace(source, {
++    ...confirmationInput('script', 1, 'script-confirm-1'),
++    outputFiles: ['script.md']
++  });
++
++  assert.equal(getFile(result.workspace, 'script.md').content, '# 已确认脚本');
++  assert.deepEqual(readPendingPatches(result.workspace), []);
++  assert.equal(parseFile(result.workspace, 'production_flow.json').stages.script.status, 'confirmed');
++  assert.equal(parseFile(result.workspace, 'production_flow.json').stages.character.status, 'generating');
++});
++
++test('autopilot consumes only low-risk patches emitted by the current Agent run', () => {
++  const {
++    savePendingPatches,
++    autopilotPatchesForRun,
++    consumePendingPatches,
++    readPendingPatches
++  } = loadWorkspaceDraftsModule();
++  const agentPatch = patch('script.md', '# Agent 脚本');
++  const manualPatch = {
++    ...patch('asset_library.json', '{"assets":[]}'),
++    id: 'manual-approval-patch',
++    requiresApproval: true
++  };
++  const source = savePendingPatches(workspaceWith(), [agentPatch, manualPatch]);
++  const applied = autopilotPatchesForRun(source, [agentPatch]);
++  const result = consumePendingPatches(source, applied.map((item) => item.filePath));
++
++  assert.deepEqual(applied.map((item) => item.id), [agentPatch.id]);
++  assert.deepEqual(readPendingPatches(result.workspace).map((item) => item.id), [manualPatch.id]);
++});
++
++test('workspace storage validation rejects invalid enums and malformed file entries', () => {
++  loadWorkspaceDraftsModule();
++  const { isWorkspaceSnapshot } = require('./workspace.ts');
++  const valid = workspaceWith({
++    '.aigc/MEMORY.md': '# memory',
++    'production_flow.json': '{}'
++  });
++
++  assert.equal(isWorkspaceSnapshot(valid), true);
++  assert.equal(isWorkspaceSnapshot({ ...valid, mode: 'legacy' }), false);
++  assert.equal(isWorkspaceSnapshot({ ...valid, activeWorkflow: 'unsupported' }), false);
++  assert.equal(isWorkspaceSnapshot({ ...valid, files: [{ path: '.aigc/MEMORY.md' }] }), false);
++});
+diff --git a/.superpowers/sdd/task-2-before/app/page.tsx b/app/page.tsx
+index a7e4644..3af4ea3 100644
+--- a/.superpowers/sdd/task-2-before/app/page.tsx
++++ b/app/page.tsx
+@@ -6,6 +6,7 @@ import type {
+   AgentMessage,
+   AgentRunResponse,
+   PatchOperation,
++  ProductionStageId,
+   WorkflowKind,
+   WorkspaceMode,
+   WorkspaceSnapshot
+@@ -13,10 +14,11 @@ import type {
+ import {
+   agentRoster,
+   allSkills,
+-  applyPatchToWorkspace,
+   contextStack,
+   diffLines,
+   getFile,
++  isInternalWorkspaceFile,
++  isWorkspaceSnapshot,
+   missionAssetsFromWorkspace,
+   modeLabel,
+   overallStatus,
+@@ -27,6 +29,20 @@ import {
+   storyboardScenes,
+   uid
+ } from '../lib/workspace';
++import {
++  appendPendingPatches,
++  applyPatchesForPreview,
++  autopilotPatchesForRun,
++  confirmStageInWorkspace,
++  consumePendingPatches,
++  readPendingPatches,
++  savePendingPatches
++} from '../lib/workspaceDrafts';
++import {
++  productionFlowFromWorkspace,
++  PRODUCTION_FLOW_PATH,
++  writeProductionFlow
++} from '../lib/productionFlow';
+ import {
+   modelReadMessage,
+   optionsForLayer,
+@@ -392,7 +408,7 @@ type ImageRenderApiResponse = {
+   error?: string;
+ };
+ 
+-const workspaceKey = 'videoagent-chat-studio-workspace-v2';
++const activeWorkspaceProjectKey = 'videoagent-active-workspace-project';
+ const messagesKey = 'videoagent-chat-studio-messages-v2';
+ const specKey = 'videoagent-chat-studio-video-spec-v2';
+ const VIDEO_POLL_INTERVAL_MS = 65000;
+@@ -912,24 +928,52 @@ function initialAssistantMessage(mode: WorkspaceMode): AgentMessage {
+   };
+ }
+ 
+-function safeLoadWorkspace(): WorkspaceSnapshot {
+-  const saved = window.localStorage.getItem(workspaceKey);
+-  if (!saved) return createBlankWorkspace('smb');
++function workspaceStorageKey(projectId: string) {
++  return `videoagent-workspace:${projectId}`;
++}
++
++function demoStorageKey(demoId: string) {
++  return `videoagent-demo-workspace:${demoId}`;
++}
++
++function demoIdFromQuery() {
++  return new URLSearchParams(window.location.search).get('demo');
++}
++
++function ensureProductionFlow(workspace: WorkspaceSnapshot): WorkspaceSnapshot {
++  if (workspace.files.some((file) => file.path === PRODUCTION_FLOW_PATH)) return workspace;
++  return writeProductionFlow(workspace, productionFlowFromWorkspace(workspace));
++}
++
++function readStoredWorkspace(storageKey: string): WorkspaceSnapshot | null {
++  const saved = window.localStorage.getItem(storageKey);
++  if (!saved) return null;
+   try {
+-    const parsed = JSON.parse(saved) as Partial<WorkspaceSnapshot>;
+-    const hasNativeSchema =
+-      parsed.mode &&
+-      parsed.activeWorkflow &&
+-      parsed.files?.some((file) => file.path === '.aigc/MEMORY.md') &&
+-      parsed.files?.some((file) => file.path === 'scenes.json') &&
+-      parsed.files?.some((file) => file.path === 'timeline.json');
+-    if (hasNativeSchema) return parsed as WorkspaceSnapshot;
++    const parsed: unknown = JSON.parse(saved);
++    if (!isWorkspaceSnapshot(parsed)) return null;
++    const hasRequiredFiles =
++      parsed.files.some((file) => file.path === '.aigc/MEMORY.md') &&
++      parsed.files.some((file) => file.path === PRODUCTION_FLOW_PATH);
++    const flowFile = parsed.files.find((file) => file.path === PRODUCTION_FLOW_PATH);
++    if (hasRequiredFiles && flowFile) {
++      JSON.parse(flowFile.content);
++      return parsed;
++    }
+   } catch (_) {}
++  return null;
++}
++
++function safeLoadWorkspace(): WorkspaceSnapshot {
++  const projectId = window.localStorage.getItem(activeWorkspaceProjectKey);
++  if (projectId) {
++    const restored = readStoredWorkspace(workspaceStorageKey(projectId));
++    if (restored) return restored;
++  }
+   return createBlankWorkspace('smb');
+ }
+ 
+ function shouldRestoreSavedMessages(workspace: WorkspaceSnapshot) {
+-  return workspace.files.some((file) => file.path !== '.aigc/MEMORY.md');
++  return workspace.files.some((file) => !isInternalWorkspaceFile(file.path));
+ }
+ 
+ function safeLoadSpec(): VideoSpec {
+@@ -1007,7 +1051,7 @@ function missionBriefFromWorkspace(workspace: WorkspaceSnapshot | null): Mission
+   const redLines = uniqueStrings([...(brief.constraints || []), ...(profile.bannedExpressions || []), ...(profile.marketingRedLines || [])]).slice(0, 4);
+ 
+   return {
+-    title: campaign.mission || brief.topic || (workspace?.files.length && workspace.files.length > 1 ? workspace.title : '') || '待创建 Mission',
++    title: campaign.mission || brief.topic || (workspace?.files.some((file) => !isInternalWorkspaceFile(file.path) && file.path !== '.aigc/MEMORY.md') ? workspace.title : '') || '待创建 Mission',
+     platform: platforms.slice(0, 3).join(' / ') || '待选择平台',
+     audience: brief.audience || profile.targetCustomer || profile.targetAudience || '待确认受众',
+     goal: campaign.conversionGoal || brief.offer || brief.contentGoal || '先用聊天描述你要做的视频',
+@@ -1326,8 +1370,6 @@ export default function Page() {
+   const [savingModelConfig, setSavingModelConfig] = useState(false);
+   const [loadingModels, setLoadingModels] = useState(false);
+   const [modelConfigMessage, setModelConfigMessage] = useState('');
+-  const [handledPatchIds, setHandledPatchIds] = useState<string[]>([]);
+-  const [manualPatches, setManualPatches] = useState<PatchOperation[]>([]);
+   const [error, setError] = useState('');
+   const [navSection, setNavSection] = useState<NavSection>('mission');
+   const [contextOpen, setContextOpen] = useState(false);
+@@ -1352,17 +1394,28 @@ export default function Page() {
+   const [roleDesignPreviewKinds, setRoleDesignPreviewKinds] = useState<Record<string, CharacterDesignOutputKind>>({});
+   const [roleDesignNotice, setRoleDesignNotice] = useState('');
+   const videoPollTimerRef = useRef<number | null>(null);
++  const demoWorkspaceId = typeof window === 'undefined' ? null : demoIdFromQuery();
+ 
+   useEffect(() => {
+     let cancelled = false;
+ 
+     async function loadDemoWorkspaceFromQuery() {
+-      const demoId = new URLSearchParams(window.location.search).get('demo');
++      const demoId = demoIdFromQuery();
+       if (!demoId) return false;
++      const savedDemo = readStoredWorkspace(demoStorageKey(demoId));
++      if (savedDemo) {
++        setWorkspace(savedDemo);
++        setWorkflow(savedDemo.activeWorkflow);
++        setVideoSpec(defaultVideoSpec);
++        setInstruction('');
++        setMessages([initialAssistantMessage(savedDemo.mode)]);
++        return true;
++      }
+       const res = await fetch(`/api/demo-workspace/${encodeURIComponent(demoId)}`);
+       const data = (await res.json()) as { ok?: boolean; error?: string; workspace?: WorkspaceSnapshot };
+       if (!res.ok || !data.workspace) throw new Error(data.error || '制作包加载失败');
+       if (cancelled) return true;
++      const demoWorkspace = ensureProductionFlow(data.workspace);
+       const demoMessages: AgentMessage[] = [
+         {
+           id: uid('msg'),
+@@ -1371,10 +1424,10 @@ export default function Page() {
+           createdAt: now()
+         }
+       ];
+-      window.localStorage.setItem(workspaceKey, JSON.stringify(data.workspace));
++      window.localStorage.setItem(demoStorageKey(demoId), JSON.stringify(demoWorkspace));
+       window.localStorage.setItem(messagesKey, JSON.stringify(demoMessages));
+-      setWorkspace(data.workspace);
+-      setWorkflow(data.workspace.activeWorkflow);
++      setWorkspace(demoWorkspace);
++      setWorkflow(demoWorkspace.activeWorkflow);
+       setVideoSpec(defaultVideoSpec);
+       setInstruction('');
+       setMessages(demoMessages);
+@@ -1389,7 +1442,7 @@ export default function Page() {
+     }
+ 
+     function loadStoredWorkspace() {
+-      const loaded = safeLoadWorkspace();
++      const loaded = ensureProductionFlow(safeLoadWorkspace());
+       const savedMessages = window.localStorage.getItem(messagesKey);
+       const loadedSpec = safeLoadSpec();
+       setWorkspace(loaded);
+@@ -1429,7 +1482,11 @@ export default function Page() {
+   }, []);
+ 
+   useEffect(() => {
+-    if (workspace) window.localStorage.setItem(workspaceKey, JSON.stringify(workspace));
++    if (!workspace) return;
++    const demoId = demoIdFromQuery();
++    const storageKey = demoId ? demoStorageKey(demoId) : workspaceStorageKey(workspace.projectId);
++    window.localStorage.setItem(storageKey, JSON.stringify(workspace));
++    if (!demoId) window.localStorage.setItem(activeWorkspaceProjectKey, workspace.projectId);
+   }, [workspace]);
+ 
+   useEffect(() => {
+@@ -1454,49 +1511,37 @@ export default function Page() {
+     };
+   }, []);
+ 
++  const pendingPatches = useMemo(() => readPendingPatches(workspace), [workspace]);
++
+   // 托管模式：运行完成后自动合并低风险 patch（高风险仍需人工确认）
+   useEffect(() => {
+     if (!autopilot || !workspace || !lastRun) return;
+-    const lowRisk = lastRun.patchOperations.filter(
+-      (patch) => patch.riskLevel === 'low' && !handledPatchIds.includes(patch.id)
+-    );
++    const lowRisk = autopilotPatchesForRun(workspace, lastRun.patchOperations);
+     if (!lowRisk.length) return;
+     const status = overallStatus(lastRun);
+-    const next = applyPatchToWorkspace({ ...workspace, activeWorkflow: lastRun.preview.workflow }, lowRisk, status);
+-    setWorkspace(next);
+-    setHandledPatchIds((prev) => [...prev, ...lowRisk.map((patch) => patch.id)]);
++    setWorkspace((current) => current
++      ? consumePendingPatches(
++        { ...current, activeWorkflow: lastRun.preview.workflow },
++        lowRisk.map((patch) => patch.filePath),
++        status
++      ).workspace
++      : current);
+     setMessages((prev) => [
+       ...prev,
+       { id: uid('msg'), role: 'assistant', content: `托管模式已自动合并 ${lowRisk.length} 个低风险 patch，高风险变更仍等待你确认。`, createdAt: now() }
+     ]);
+     // eslint-disable-next-line react-hooks/exhaustive-deps
+-  }, [autopilot, lastRun, handledPatchIds, workspace]);
++  }, [autopilot, lastRun, pendingPatches, workspace]);
+ 
+-  const allPatchOperations = useMemo(
+-    () => [...(lastRun?.patchOperations || []), ...manualPatches],
+-    [lastRun, manualPatches]
++  const proposedWorkspace = useMemo(
++    () => applyPatchesForPreview(workspace, pendingPatches),
++    [workspace, pendingPatches]
+   );
+ 
+-  const proposedWorkspace = useMemo(() => {
+-    if (!workspace || !allPatchOperations.length) return workspace;
+-    const files = [...workspace.files];
+-    for (const patch of allPatchOperations) {
+-      const index = files.findIndex((file) => file.path === patch.filePath);
+-      const nextFile = {
+-        path: patch.filePath,
+-        kind: files[index]?.kind || (patch.filePath.endsWith('.md') ? ('markdown' as const) : patch.filePath.includes('asset') ? ('asset' as const) : patch.filePath.endsWith('.json') ? ('json' as const) : ('config' as const)),
+-        content: patch.after,
+-        version: (files[index]?.version || 0) + 1,
+-        updatedAt: now()
+-      };
+-      if (index >= 0) files[index] = nextFile;
+-      else files.push(nextFile);
+-    }
+-    return { ...workspace, files };
+-  }, [workspace, allPatchOperations]);
+-
+   const brief = useMemo(() => missionBriefFromWorkspace(proposedWorkspace), [proposedWorkspace]);
+-  const hasWorkspaceAssets = Boolean(workspace && workspace.files.length > 1);
++  const hasWorkspaceAssets = Boolean(
++    workspace?.files.some((file) => !isInternalWorkspaceFile(file.path) && file.path !== '.aigc/MEMORY.md')
++  );
+   const assets = useMemo(
+     () => (lastRun?.assets.length ? lastRun.assets : hasWorkspaceAssets ? missionAssetsFromWorkspace(workspace) : []),
+     [lastRun, workspace, hasWorkspaceAssets]
+@@ -1507,10 +1552,6 @@ export default function Page() {
+   );
+   const publishCopy = useMemo(() => parseJsonFile<PublishCopy>(proposedWorkspace, 'publish_copy.json', {}), [proposedWorkspace]);
+   const assetPrompts = useMemo(() => parseJsonFile<AssetPrompts>(proposedWorkspace, 'asset_prompts.json', {}), [proposedWorkspace]);
+-  const pendingPatches = useMemo(
+-    () => allPatchOperations.filter((patch) => !handledPatchIds.includes(patch.id)),
+-    [allPatchOperations, handledPatchIds]
+-  );
+   const scriptFile = getFile(proposedWorkspace, 'script.md');
+   const scriptPatch = pendingPatches.find((patch) => patch.filePath === 'script.md');
+   const scriptBody = scriptFile?.content || scriptPatch?.after || '';
+@@ -1572,8 +1613,6 @@ export default function Page() {
+     setError('');
+     setLastRun(null);
+     setVideoRender({ status: 'idle' });
+-    setHandledPatchIds([]);
+-    setManualPatches([]);
+     setMessages((prev) => [...prev, userMessage]);
+     setInstruction('');
+ 
+@@ -1596,6 +1635,7 @@ export default function Page() {
+         ? { ...rawResult, patchOperations: scopedPatches }
+         : rawResult;
+       setLastRun(result);
++      setWorkspace((current) => current ? appendPendingPatches(current, result.patchOperations) : current);
+       setMessages((prev) => [...prev, { id: uid('msg'), role: 'assistant', content: result.assistantMessage, createdAt: now() }]);
+       if (nodeRevisionNode) {
+         const nodePatch = result.patchOperations.find((patch) => patchTouchesNode(patch, nodeRevisionNode)) || result.patchOperations[0];
+@@ -1631,27 +1671,50 @@ export default function Page() {
+     const patches = pendingPatches.filter((patch) => patchIds.includes(patch.id));
+     if (!patches.length) return;
+     const status = lastRun ? overallStatus(lastRun) : workspace.complianceStatus;
+-    const next = applyPatchToWorkspace({ ...workspace, activeWorkflow: lastRun?.preview.workflow || workspace.activeWorkflow }, patches, status);
+-    setWorkspace(next);
+-    setHandledPatchIds((prev) => [...prev, ...patches.map((patch) => patch.id)]);
++    setWorkspace((current) => current
++      ? consumePendingPatches(
++        { ...current, activeWorkflow: lastRun?.preview.workflow || current.activeWorkflow },
++        patches.map((patch) => patch.filePath),
++        status
++      ).workspace
++      : current);
+     setMessages((prev) => [...prev, { id: uid('msg'), role: 'assistant', content: `已合并 ${patches.length} 个 patch。`, createdAt: now() }]);
+   }
+ 
+   function rejectPatchIds(patchIds: string[]) {
+     const ids = pendingPatches.filter((patch) => patchIds.includes(patch.id)).map((patch) => patch.id);
+     if (!ids.length) return;
+-    setHandledPatchIds((prev) => [...prev, ...ids]);
++    setWorkspace((current) => current
++      ? savePendingPatches(current, readPendingPatches(current).filter((patch) => !ids.includes(patch.id)))
++      : current);
+     setMessages((prev) => [...prev, { id: uid('msg'), role: 'assistant', content: `已拒绝 ${ids.length} 个 patch，文件未变化。`, createdAt: now() }]);
+   }
+ 
++  function confirmProductionStage(stage: ProductionStageId, outputFiles: string[]) {
++    setWorkspace((current) => {
++      if (!current) return current;
++      const flow = productionFlowFromWorkspace(current);
++      const record = flow.stages[stage];
++      if (record.status !== 'ready_for_review' || record.draftVersion === null) return current;
++      return confirmStageInWorkspace(current, {
++        stage,
++        expectedDraftVersion: record.draftVersion,
++        confirmationKey: `confirm:${stage}:${record.draftVersion}`,
++        confirmedAt: now(),
++        confirmedBy: 'local-user',
++        nextGenerationJobId: stage === 'video' ? null : `${stage}-next-${record.draftVersion}`,
++        sourceVersions: record.sourceVersions,
++        outputFiles
++      }).workspace;
++    });
++  }
++
+   function resetProject(mode = workspace?.mode || 'creator') {
+-    const next = createBlankWorkspace(mode);
++    const next = ensureProductionFlow(createBlankWorkspace(mode));
+     setWorkspace(next);
+     setMessages([initialAssistantMessage(mode)]);
+     setLastRun(null);
+     setVideoRender({ status: 'idle' });
+-    setHandledPatchIds([]);
+-    setManualPatches([]);
+     setWorkflow('generate');
+     setInstruction('');
+     setSelectedPatchId('');
+@@ -1671,6 +1734,13 @@ export default function Page() {
+     setError('');
+   }
+ 
++  function resetDemoWorkspace() {
++    const demoId = demoIdFromQuery();
++    if (!demoId) return;
++    window.localStorage.removeItem(demoStorageKey(demoId));
++    window.location.reload();
++  }
++
+   function updateSpec(next: Partial<VideoSpec>) {
+     setVideoSpec((prev) => ({ ...prev, ...next }));
+   }
+@@ -2119,7 +2189,7 @@ export default function Page() {
+       riskLevel: 'low',
+       requiresApproval: true
+     };
+-    setManualPatches((prev) => [...prev.filter((item) => !(item.filePath === patch.filePath && item.summary === summary)), patch]);
++    setWorkspace((current) => current ? appendPendingPatches(current, [patch]) : current);
+     setSelectedPatchId(patch.id);
+     setSelectedNodeId('node_character');
+     setRoleDesignNotice(`已生成待审 Patch：${summary}。审批后才会替换视频参考图。`);
+@@ -2168,7 +2238,7 @@ export default function Page() {
+       riskLevel: 'low',
+       requiresApproval: true
+     };
+-    setManualPatches((prev) => [...prev, patch]);
++    setWorkspace((current) => current ? appendPendingPatches(current, [patch]) : current);
+     setSelectedPatchId(patch.id);
+     setSelectedNodeId('node_character');
+     setRoleDesignNotice(`已生成资产库待审 Patch：${title}。`);
+@@ -2578,7 +2648,7 @@ export default function Page() {
+       riskLevel: 'low',
+       requiresApproval: true
+     };
+-    setManualPatches((prev) => [...prev, patch]);
++    setWorkspace((current) => current ? appendPendingPatches(current, [patch]) : current);
+     setSelectedPatchId(patch.id);
+     setSelectedNodeId(node.id);
+     setMessages((prev) => [
+@@ -3082,6 +3152,11 @@ export default function Page() {
+               <button type="button" className="btn" onClick={() => resetProject(workspace.mode)}>
+                 <IconPlus /> 新建
+               </button>
++              {demoWorkspaceId && (
++                <button type="button" className="btn" onClick={resetDemoWorkspace}>
++                  <IconRefresh /> 重置 Demo
++                </button>
++              )}
+             </div>
+ 
+             <div className="focus-scroll">
+@@ -3765,7 +3840,14 @@ export default function Page() {
+                                       >
+                                         <IconGitMerge /> 应用到视频任务
+                                       </button>
+-                                      <button type="button" className="btn sm" onClick={() => focusStudioStage('scene')}>
++                                      <button
++                                        type="button"
++                                        className="btn sm"
++                                        onClick={() => {
++                                          confirmProductionStage('character', ['characters.json']);
++                                          focusStudioStage('scene');
++                                        }}
++                                      >
+                                         <IconCheck /> 确认并继续场景
+                                       </button>
+                                     </div>
+diff --git a/.superpowers/sdd/task-2-before/app/page.model-config-ui.test.cjs b/app/page.model-config-ui.test.cjs
+index 740d311..055b234 100644
+--- a/.superpowers/sdd/task-2-before/app/page.model-config-ui.test.cjs
++++ b/app/page.model-config-ui.test.cjs
+@@ -54,6 +54,8 @@ test('asset selection updates the main file surface without opening inspector',
+ });
+ 
+ test('draft missions use a focused surface until generated assets exist', () => {
++  assert.match(source, /const hasWorkspaceAssets = Boolean\(\s*workspace\?\.files\.some\(\(file\) => !isInternalWorkspaceFile\(file\.path\) && file\.path !== '\.aigc\/MEMORY\.md'\)\s*\)/);
++  assert.doesNotMatch(source, /workspace\.files\.length > 1/);
+   assert.match(source, /const hasOutput = Boolean\(lastRun\) \|\| hasWorkspaceAssets/);
+   assert.match(source, /const focusMode = hasUserConversation && !hasOutput/);
+   assert.match(source, /focusMode \? \(/);
+@@ -138,10 +140,38 @@ test('website can load the Xiaopeng V2 production workspace through a local demo
+   assert.match(source, /async function loadDemoWorkspaceFromQuery/);
+   assert.match(source, /new URLSearchParams\(window\.location\.search\)\.get\('demo'\)/);
+   assert.match(source, /fetch\(`\/api\/demo-workspace\/\$\{encodeURIComponent\(demoId\)\}`\)/);
+-  assert.match(source, /setWorkspace\(data\.workspace\)/);
++  assert.match(source, /setWorkspace\(demoWorkspace\)/);
+   assert.match(source, /小澎的恋爱史 V2 制作包已载入/);
+ });
+ 
++test('workspace persistence is scoped by project or demo and restores a demo before fetching', () => {
++  assert.match(source, /function workspaceStorageKey\(projectId: string\)/);
++  assert.match(source, /videoagent-workspace:\$\{projectId\}/);
++  assert.match(source, /function demoStorageKey\(demoId: string\)/);
++  assert.match(source, /videoagent-demo-workspace:\$\{demoId\}/);
++  assert.match(source, /window\.localStorage\.getItem\(storageKey\)/);
++  assert.match(source, /const savedDemo = readStoredWorkspace\(demoStorageKey\(demoId\)\)/);
++  assert.match(source, /if \(savedDemo\) \{/);
++  assert.match(source, /window\.localStorage\.removeItem\(demoStorageKey\(demoId\)\)/);
++  assert.match(source, /重置 Demo/);
++});
++
++test('autopilot keeps manual approval-required drafts out of automatic consumption', () => {
++  assert.match(source, /autopilotPatchesForRun\(workspace, lastRun\.patchOperations\)/);
++  assert.doesNotMatch(source, /const lowRisk = pendingPatches\.filter\(\(patch\) => patch\.riskLevel === 'low'\)/);
++});
++
++test('stored workspaces require a full runtime snapshot guard', () => {
++  assert.match(source, /if \(!isWorkspaceSnapshot\(parsed\)\) return null/);
++});
++
++test('stage confirmation consumes its assets and writes the flow through one workspace update', () => {
++  assert.match(source, /function confirmProductionStage\(stage: ProductionStageId, outputFiles: string\[\]\)/);
++  assert.match(source, /setWorkspace\(\(current\) => \{/);
++  assert.match(source, /return confirmStageInWorkspace\(current, \{/);
++  assert.match(source, /outputFiles/);
++});
++
+ test('video generation status keeps polling until the provider reaches a terminal state', () => {
+   assert.match(source, /const VIDEO_POLL_INTERVAL_MS = 65000/);
+   assert.match(source, /const VIDEO_POLL_MAX_ATTEMPTS = \d+/);
+@@ -231,7 +261,7 @@ test('asset library saves only stable nodes through approval patches', () => {
+   assert.match(source, /filePath: 'asset_library\.json'/);
+   assert.match(source, /patch\.filePath === 'asset_library\.json' && patch\.summary\.includes\(node\.title\)/);
+   assert.match(source, /riskLevel: 'low'/);
+-  assert.match(source, /setManualPatches/);
++  assert.match(source, /appendPendingPatches\(current, \[patch\]\)/);
+   assert.match(source, /提议入库/);
+   assert.match(source, /合并后才会写入 asset_library\.json/);
+ });
+

@@ -1,0 +1,2045 @@
+--- .superpowers/sdd/task-8-before/app/page.tsx	2026-07-11 22:21:05
++++ app/page.tsx	2026-07-11 22:59:36
+@@ -49,9 +49,23 @@
+   markStageDraft,
+   nextProductionStage,
+   PRODUCTION_FLOW_PATH,
++  updateProductionFlow,
+   visibleProductionStages,
+   writeProductionFlow
+ } from '../lib/productionFlow';
++import {
++  createVideoRenderJobs,
++  finalizeVideoSubmission,
++  normalizeVideoProviderStatus,
++  resumableVideoJobs,
++  retryableVideoJobs,
++  unrecoverableRestoredVideoJobIds,
++  updateVideoRenderJob,
++  timeoutPendingVideoJobIds,
++  videoBatchStatus,
++  videoRecoveryBatchKey,
++  type VideoRenderJob
++} from '../lib/videoRenderBatch';
+ import {
+   filterStagePatches,
+   isProductionStageFile,
+@@ -96,8 +110,7 @@
+   ExecutionLog,
+   PlanList,
+   StoryboardView,
+-  VideoGenHandoff,
+-  type VideoRenderState
++  VideoGenHandoff
+ } from '../components/runtime';
+ import {
+   IconBolt,
+@@ -449,12 +462,12 @@
+ const specKey = 'videoagent-chat-studio-video-spec-v2';
+ const VIDEO_POLL_INTERVAL_MS = 65000;
+ const VIDEO_POLL_MAX_ATTEMPTS = 60;
++const VIDEO_SUBMISSION_INTERRUPTED_ERROR = '提交中断且没有可恢复任务 ID，请核对后重试';
+ const VIDEO_RENDER_SEGMENT_SECONDS = 15;
+ const VIDEO_RENDER_SEGMENT_COUNT = 12;
+ const VIDEO_RENDER_TOTAL_SECONDS = VIDEO_RENDER_SEGMENT_SECONDS * VIDEO_RENDER_SEGMENT_COUNT;
+ const VIDEO_RENDER_MAX_TARGET_SECONDS = VIDEO_RENDER_SEGMENT_SECONDS;
+ const VIDEO_MAX_NUM_FRAMES = 409;
+-const VIDEO_FAILED_STATUSES = ['failed', 'failure', 'error', 'cancelled', 'canceled'];
+ 
+ const defaultVideoSpec: VideoSpec = {
+   provider: 'Agnes Video V2.0',
+@@ -1405,7 +1418,6 @@
+   const [instruction, setInstruction] = useState('');
+   const [workflow, setWorkflow] = useState<WorkflowKind>('generate');
+   const [videoSpec, setVideoSpec] = useState<VideoSpec>(defaultVideoSpec);
+-  const [videoRender, setVideoRender] = useState<VideoRenderState>({ status: 'idle' });
+   const [selectedPatchId, setSelectedPatchId] = useState('');
+   const [lastRun, setLastRun] = useState<AgentRunResponse | null>(null);
+   const [loading, setLoading] = useState(false);
+@@ -1441,7 +1453,12 @@
+   const [roleDesignPreviewKinds, setRoleDesignPreviewKinds] = useState<Record<string, CharacterDesignOutputKind>>({});
+   const [roleDesignNotice, setRoleDesignNotice] = useState('');
+   const [scriptDraft, setScriptDraft] = useState('');
++  const [videoConfirming, setVideoConfirming] = useState(false);
+   const videoPollTimerRef = useRef<number | null>(null);
++  const videoBatchRunRef = useRef(0);
++  const videoRecoveryKeyRef = useRef('');
++  const videoSubmissionInFlightRef = useRef(false);
++  const workspaceRef = useRef<WorkspaceSnapshot | null>(null);
+   const stageGenerationJobRef = useRef(new Map<ProductionStageId, string>());
+   const stageRunRef = useRef(new Map<ProductionStageId, StageRun>());
+   const stageRunTokenRef = useRef(new Map<ProductionStageId, number>());
+@@ -1577,9 +1594,61 @@
+ 
+   useEffect(() => {
+     return () => {
++      videoBatchRunRef.current += 1;
+       if (videoPollTimerRef.current) window.clearTimeout(videoPollTimerRef.current);
+     };
+   }, []);
++
++  useEffect(() => {
++    workspaceRef.current = workspace;
++  }, [workspace]);
++
++  useEffect(() => {
++    if (!workspace) return;
++    const allBatchJobs = productionFlowFromWorkspace(workspace).videoJobs as VideoRenderJob[];
++    if (videoSubmissionInFlightRef.current) return;
++    if (unrecoverableRestoredVideoJobIds(allBatchJobs).length) {
++      setWorkspace((current) => {
++        if (!current) return current;
++        return updateProductionFlow(current, (flow) => {
++          const interruptedIds = new Set(unrecoverableRestoredVideoJobIds(flow.videoJobs as VideoRenderJob[]));
++          if (!interruptedIds.size) return flow;
++          const nextJobs = (flow.videoJobs as VideoRenderJob[]).map((job) => interruptedIds.has(job.id)
++            ? { ...job, status: 'failed' as const, error: VIDEO_SUBMISSION_INTERRUPTED_ERROR }
++            : job
++          );
++          const batch = videoBatchStatus(nextJobs);
++          return {
++            ...flow,
++            currentStage: 'video',
++            stages: {
++              ...flow.stages,
++              video: {
++                ...flow.stages.video,
++                status: batch === 'failed' ? 'failed' : 'rendering',
++                error: batch === 'clips_ready' ? '全部片段已完成，等待合成为单一成片文件。' : null
++              }
++            },
++            videoJobs: nextJobs
++          };
++        });
++      });
++      return;
++    }
++    const resumableJobs = resumableVideoJobs(allBatchJobs);
++    const hasActiveBatchJobs = allBatchJobs.some((job) => job.status === 'submitting' || job.status === 'submitted' || job.status === 'polling');
++    if (!hasActiveBatchJobs) {
++      videoRecoveryKeyRef.current = '';
++      return;
++    }
++    if (!resumableJobs.length) return;
++    const recoveryKey = videoRecoveryBatchKey(workspace.projectId, allBatchJobs);
++    if (videoRecoveryKeyRef.current === recoveryKey) return;
++    const batchToken = videoBatchRunRef.current + 1;
++    videoBatchRunRef.current = batchToken;
++    videoRecoveryKeyRef.current = recoveryKey;
++    scheduleVideoBatchPoll(batchToken, 1);
++  }, [workspace]);
+ 
+   const pendingPatches = useMemo(() => readPendingPatches(workspace), [workspace]);
+ 
+@@ -1871,7 +1940,6 @@
+     setLoading(true);
+     setError('');
+     setLastRun(null);
+-    setVideoRender({ status: 'idle' });
+ 
+     try {
+       const response = await fetch('/api/agent/run', {
+@@ -1957,8 +2025,14 @@
+     const patches = pendingPatches.filter((patch) => patchIds.includes(patch.id));
+     if (!patches.length) return;
+     const productionStages = new Set(patches.map((patch) => productionStageForFile(patch.filePath)).filter(Boolean));
++    const productionStage = [...productionStages][0];
++    if (productionStage === 'video') {
++      const message = '视频任务 patch 只能通过“确认视频任务并开始生成”提交。';
++      setError(message);
++      setMessages((prev) => [...prev, { id: uid('msg'), role: 'system', content: message, createdAt: now() }]);
++      return;
++    }
+     if (productionStages.size > 0) {
+-      const productionStage = [...productionStages][0];
+       const mixedWithNonProduction = patches.some((patch) => !productionStageForFile(patch.filePath));
+       if (productionStages.size !== 1 || mixedWithNonProduction || !productionStage) {
+         const message = '生产阶段 patch 不能与其它 patch 一起合并，请按阶段确认。';
+@@ -1998,6 +2072,10 @@
+ 
+   async function confirmProductionStage(stage: ProductionStageId) {
+     if (!workspace || !proposedWorkspace) return;
++    if (stage === 'video') {
++      setError('通用确认不能消费视频任务 patch；请使用唯一的最终确认入口。');
++      return;
++    }
+     const flow = productionFlowFromWorkspace(workspace);
+     const record = flow.stages[stage];
+     if (record.status !== 'ready_for_review' || record.draftVersion === null) return;
+@@ -2045,7 +2123,6 @@
+     setWorkspace(next);
+     setMessages([initialAssistantMessage(mode)]);
+     setLastRun(null);
+-    setVideoRender({ status: 'idle' });
+     setWorkflow('generate');
+     setInstruction('');
+     setSelectedPatchId('');
+@@ -2176,7 +2253,8 @@
+   const modelWriteBlocked = modelConfig?.writable === false && !modelConfig?.authRequired;
+   const modelTokenMissing = Boolean(modelConfig?.authRequired && !modelAdminToken.trim() && !modelConfig.writable);
+   const warningChecks = lastRun?.complianceChecks.filter((check) => check.status !== 'pass') || [];
+-  const approvalReady = pendingPatches.filter((patch) => patch.riskLevel === 'low').length;
++  const genericPendingPatches = pendingPatches.filter((patch) => productionStageForFile(patch.filePath) !== 'video');
++  const approvalReady = genericPendingPatches.filter((patch) => patch.riskLevel === 'low').length;
+   const expectedTaskCount = Math.max(5, videoCards.length, scenes.length, assetPrompts.prompts?.length || 0, assetPrompts.renderQueue?.length || 0);
+   const visibleTaskCount = videoCards.length;
+   const renderTaskCount = Math.max(assetPrompts.renderQueue?.length || 0, assetPrompts.prompts?.length || 0, videoCards.length, scenes.length);
+@@ -2244,14 +2322,15 @@
+     }))
+   }));
+   const fullExpressionPalette = CHARACTER_EXPRESSION_OPTIONS.map((option) => option.label).join('、');
++  const nonVideoPendingPatches = pendingPatches.filter((patch) => patch.filePath !== 'asset_prompts.json');
+   const handoffReady =
+-    Boolean(getFile(workspace, 'asset_prompts.json')) && pendingPatches.length === 0 && complianceStatus !== 'blocked';
+-  const handoffMissing = !getFile(workspace, 'asset_prompts.json')
++    Boolean(getFile(proposedWorkspace, 'asset_prompts.json')) && nonVideoPendingPatches.length === 0 && complianceStatus !== 'blocked';
++  const handoffMissing = !getFile(proposedWorkspace, 'asset_prompts.json')
+     ? '当前还没有已确认的素材提示词制作包，先让 Agent 产出并审批通过。'
+     : complianceStatus === 'blocked'
+     ? '合规检查阻断，请先处理风险后再交接。'
+-    : pendingPatches.length
+-    ? `还有 ${pendingPatches.length} 个 patch 待审批，确认后才会交接。`
++    : nonVideoPendingPatches.length
++    ? `还有 ${nonVideoPendingPatches.length} 个上游 patch 待审批，确认后才会交接。`
+     : '';
+ 
+   const selectedAsset = assets.find((asset) => asset.id === selectedAssetId) || assets[0];
+@@ -2946,7 +3025,8 @@
+   const selectedProductionRecord = productionFlow.stages[selectedProductionStage];
+   const selectedDecision = selectedNode ? decisionCardForNode(selectedNode) : null;
+   const selectedNodePatches = selectedNode ? pendingPatches.filter((patch) => patchTouchesNode(patch, selectedNode)) : [];
+-  const selectedNodePatchIds = selectedNodePatches.map((patch) => patch.id);
++  const genericSelectedNodePatches = selectedNodePatches.filter((patch) => productionStageForFile(patch.filePath) !== 'video');
++  const selectedNodePatchIds = genericSelectedNodePatches.map((patch) => patch.id);
+   const committedAssetLibrary = parseJsonFile<AssetLibraryFile>(workspace, 'asset_library.json', { assets: [] });
+   const proposedAssetLibrary = parseJsonFile<AssetLibraryFile>(proposedWorkspace, 'asset_library.json', { assets: [] });
+   const libraryItems = committedAssetLibrary.assets || [];
+@@ -2963,21 +3043,18 @@
+     selectedNode && isNodeStableForLibrary(selectedNode, workspace) && !selectedNodeInLibrary && !selectedNodePendingLibrary
+   );
+ 
+-  function firstRenderablePrompt() {
+-    const prompt = committedPrompts.prompts?.find((item) => item.type !== 'image' && item.prompt) || committedPrompts.prompts?.find((item) => item.prompt);
+-    return prompt || null;
++  function normalizedVideoPrompts(data: AssetPrompts): VideoPromptEntry[] {
++    return (data.prompts || [])
++      .map((prompt, index) => ({ ...prompt, id: prompt.id?.trim() || `video-prompt-${index + 1}` }))
++      .filter((prompt) => prompt.type === 'video' && Boolean(prompt.prompt?.trim()));
+   }
+ 
+-  function renderableVideoPrompts() {
+-    return (committedPrompts.prompts || []).filter((item) => item.prompt && item.type !== 'image');
++  function targetDurationSeconds(prompt?: VideoPromptEntry) {
++    return clampVideoDuration(numberFromValue(prompt?.durationSeconds) || VIDEO_RENDER_SEGMENT_SECONDS);
+   }
+ 
+-  function targetDurationSeconds() {
+-    return clampVideoDuration(VIDEO_RENDER_SEGMENT_SECONDS);
+-  }
+-
+-  function specForTargetDuration(seconds: number) {
+-    const baseSpec = committedPrompts.renderSpec || {};
++  function specForTargetDuration(seconds: number, data: AssetPrompts) {
++    const baseSpec = data.renderSpec || {};
+     const frameRate = numberFromValue(baseSpec.frameRate || baseSpec.frame_rate) || videoSpec.fps;
+     const existingFrames = numberFromValue(baseSpec.numFrames || baseSpec.num_frames || videoSpec.numFrames);
+     const timing = timingForTargetDuration(seconds, frameRate, existingFrames);
+@@ -2989,7 +3066,7 @@
+     };
+   }
+ 
+-  function buildVideoRenderPrompt(fallbackPrompt: NonNullable<ReturnType<typeof firstRenderablePrompt>>, seconds: number) {
++  function buildVideoRenderPrompt(fallbackPrompt: VideoPromptEntry, seconds: number, data: AssetPrompts) {
+     const duration = numberFromValue(fallbackPrompt.durationSeconds);
+     const taskLine = `${fallbackPrompt.renderTask || '当前镜头'} ${duration ? `(${duration}s)` : ''}：${fallbackPrompt.prompt}`;
+     return [
+@@ -2999,12 +3076,12 @@
+       '必须把下面的镜头任务组织成这一小节内的连续叙事，不要试图一次生成整条长视频。',
+       '不要让视频模型生成任何可读文字；字幕、标题和旁白由后期纯中文字幕添加。',
+       '禁止英文、拼音、拉丁字母、乱码、可读招牌、屏幕文字、书本文字和包装文字。',
+-      committedPrompts.characterConsistency?.consistencyPrompt
+-        ? `人物一致性：${committedPrompts.characterConsistency.consistencyPrompt}`
++      data.characterConsistency?.consistencyPrompt
++        ? `人物一致性：${data.characterConsistency.consistencyPrompt}`
+         : '',
+       characterControlSummaryForPrompt(),
+-      committedPrompts.characterConsistency?.negativePrompt
+-        ? `避免项：${chineseOnlyVideoNegativePrompt(committedPrompts.characterConsistency.negativePrompt)}。`
++      data.characterConsistency?.negativePrompt
++        ? `避免项：${chineseOnlyVideoNegativePrompt(data.characterConsistency.negativePrompt)}。`
+         : `避免项：${chineseOnlyVideoNegativePrompt('不要脸部不一致')}。`,
+       `镜头任务：\n${taskLine}`
+     ]
+@@ -3019,87 +3096,396 @@
+     }
+   }
+ 
+-  function scheduleVideoPoll(videoId: string, attempt: number) {
+-    if (!videoId || attempt > VIDEO_POLL_MAX_ATTEMPTS) return;
++  function updateVideoJobsForBatch(batchToken: number, id: string, patch: Partial<VideoRenderJob>) {
++    setWorkspace((current) => {
++      if (!current || batchToken !== videoBatchRunRef.current) return current;
++      return updateProductionFlow(current, (flow) => {
++        const nextJobs = updateVideoRenderJob(flow.videoJobs as VideoRenderJob[], id, patch);
++        if (nextJobs === flow.videoJobs) return flow;
++        const batch = videoBatchStatus(nextJobs);
++        return {
++          ...flow,
++          currentStage: 'video',
++          stages: {
++            ...flow.stages,
++            video: {
++              ...flow.stages.video,
++              status: batch === 'failed' ? 'failed' : 'rendering',
++              error: batch === 'clips_ready' ? '全部片段已完成，等待合成为单一成片文件。' : null
++            }
++          },
++          videoJobs: nextJobs
++        };
++      });
++    });
++  }
++
++  function scheduleVideoBatchPoll(batchToken: number, attempt: number) {
++    if (batchToken !== videoBatchRunRef.current || attempt > VIDEO_POLL_MAX_ATTEMPTS) return;
+     clearVideoPollTimer();
+-    videoPollTimerRef.current = window.setTimeout(() => void pollVideoRender(videoId, attempt), VIDEO_POLL_INTERVAL_MS);
++    videoPollTimerRef.current = window.setTimeout(() => void pollVideoRenderBatch(batchToken, attempt), VIDEO_POLL_INTERVAL_MS);
+   }
+ 
+-  async function pollVideoRender(videoId = videoRender.videoId || '', attempt = 1) {
+-    if (!videoId) return;
++  async function pollVideoRenderBatch(batchToken: number, attempt = 1) {
++    if (batchToken !== videoBatchRunRef.current) return;
+     clearVideoPollTimer();
+-    setVideoRender((prev) => ({ ...prev, status: 'polling', error: '' }));
+-    try {
+-      const res = await fetch(`/api/video/render?video_id=${encodeURIComponent(videoId)}`);
+-      const data = (await res.json()) as VideoRenderApiResponse;
+-      if (!res.ok) throw new Error(data.error || '视频状态查询失败');
+-      const status = String(data.status || '').toLowerCase();
+-      const failed = VIDEO_FAILED_STATUSES.includes(status);
+-      const nextVideoId = data.video_id || data.videoId || videoId;
+-      const hasVideoUrl = Boolean(data.videoUrl);
+-      const progress = typeof data.progress === 'number' ? data.progress : undefined;
+-      const shouldContinue = !hasVideoUrl && !failed && attempt < VIDEO_POLL_MAX_ATTEMPTS;
+-      setVideoRender({
+-        status: hasVideoUrl ? 'completed' : failed ? 'failed' : 'submitted',
+-        videoId: nextVideoId,
+-        videoUrl: data.videoUrl || '',
+-        progress,
+-        error: failed
+-          ? videoErrorText(data.error || data.raw?.error) || '视频生成失败'
+-          : !shouldContinue && !hasVideoUrl
+-            ? '自动刷新已暂停，可点击“刷新状态”继续查询。'
++    const flow = productionFlowFromWorkspace(workspaceRef.current);
++    const pollingJobs = (flow.videoJobs as VideoRenderJob[]).filter(
++      (job) => (job.status === 'submitted' || job.status === 'polling') && Boolean(job.providerTaskId)
++    );
++    if (!pollingJobs.length) return;
++
++    const outcomes = await Promise.all(pollingJobs.map(async (job) => {
++      if (batchToken !== videoBatchRunRef.current || !job.providerTaskId) return { id: job.id, pending: false };
++      updateVideoJobsForBatch(batchToken, job.id, { status: 'polling', error: '' });
++      try {
++        const res = await fetch(`/api/video/render?video_id=${encodeURIComponent(job.providerTaskId)}`);
++        const data = (await res.json()) as VideoRenderApiResponse;
++        if (!res.ok) throw new Error(data.error || '视频状态查询失败');
++        if (batchToken !== videoBatchRunRef.current) return { id: job.id, pending: false };
++        const normalizedStatus = normalizeVideoProviderStatus(data.status, data.videoUrl);
++        updateVideoJobsForBatch(batchToken, job.id, {
++          status: normalizedStatus,
++          providerTaskId: data.video_id || data.videoId || job.providerTaskId,
++          videoUrl: data.videoUrl || job.videoUrl,
++          progress: typeof data.progress === 'number' ? data.progress : job.progress,
++          error: normalizedStatus === 'failed'
++            ? videoErrorText(data.error || data.raw?.error) || '视频生成失败'
+             : ''
+-      });
+-      if (shouldContinue) scheduleVideoPoll(nextVideoId, attempt + 1);
+-    } catch (err) {
+-      const message = err instanceof Error ? err.message : '视频状态查询失败';
+-      setVideoRender((prev) => ({ ...prev, status: 'failed', error: message }));
+-    }
+-  }
++        });
++        return { id: job.id, pending: normalizedStatus === 'submitted' };
++      } catch (err) {
++        if (batchToken !== videoBatchRunRef.current) return { id: job.id, pending: false };
++        updateVideoJobsForBatch(batchToken, job.id, {
++          status: 'failed',
++          error: err instanceof Error ? err.message : '视频状态查询失败'
++        });
++        return { id: job.id, pending: false };
++      }
++    }));
+ 
+-  async function submitVideoRender() {
+-    const prompt = firstRenderablePrompt();
+-    if (!prompt?.prompt) {
+-      setVideoRender({ status: 'failed', error: '还没有可提交的视频镜头任务。先准备视频任务。' });
++    if (batchToken !== videoBatchRunRef.current) return;
++    if (attempt < VIDEO_POLL_MAX_ATTEMPTS) {
++      scheduleVideoBatchPoll(batchToken, attempt + 1);
+       return;
+     }
+-    const targetDuration = targetDurationSeconds();
++    for (const jobId of timeoutPendingVideoJobIds(outcomes)) {
++      updateVideoJobsForBatch(batchToken, jobId, { status: 'failed', error: '视频状态轮询超时，请重试此镜头。' });
++    }
++  }
++
++  function requestForVideoJob(job: VideoRenderJob, data: AssetPrompts) {
++    const prompt = normalizedVideoPrompts(data).find((item) => item.id === job.promptId);
++    if (!prompt?.prompt) throw new Error(`镜头 ${job.promptId} 缺少可提交提示词`);
+     const referenceImages = referenceImagesForPrompt(prompt);
+-    const renderSpec = specForTargetDuration(targetDuration);
++    if (!referenceImages.length) throw new Error(`镜头 ${job.promptId} 缺少参考图`);
++    const targetDuration = targetDurationSeconds(prompt);
++    const renderSpec = specForTargetDuration(targetDuration, data);
+     const renderMode = videoModeForPrompt(prompt, renderSpec, referenceImages);
+-    setVideoRender({ status: 'submitting' });
++    return {
++      prompt: buildVideoRenderPrompt(prompt, targetDuration, data),
++      negativePrompt: chineseOnlyVideoNegativePrompt(data.characterConsistency?.negativePrompt),
++      image: referenceImages.length === 1 && renderMode !== 'keyframes' ? referenceImages[0] : undefined,
++      keyframes: referenceImages.length > 1 || renderMode === 'keyframes' ? referenceImages : undefined,
++      mode: renderMode,
++      spec: renderSpec
++    };
++  }
++
++  async function submitVideoRenderJobs(
++    jobs: VideoRenderJob[],
++    batchToken: number,
++    data: AssetPrompts,
++    postRender: (body: ReturnType<typeof requestForVideoJob>) => Promise<Response>
++  ) {
++    const queue = [...jobs];
++    const submitNext = async () => {
++      while (queue.length && batchToken === videoBatchRunRef.current) {
++        const job = queue.shift();
++        if (!job) return;
++        const nextAttempt = job.attempt + 1;
++        updateVideoJobsForBatch(batchToken, job.id, { status: 'submitting', attempt: nextAttempt, error: '', progress: 0 });
++        try {
++          const res = await postRender(requestForVideoJob(job, data));
++          const result = (await res.json()) as VideoRenderApiResponse;
++          if (!res.ok) throw new Error(result.error || '视频生成提交失败');
++          if (batchToken !== videoBatchRunRef.current) return;
++          const providerTaskId = result.video_id || result.videoId || result.task_id || '';
++          const normalizedStatus = normalizeVideoProviderStatus(result.status, result.videoUrl);
++          const submission = finalizeVideoSubmission(normalizedStatus, providerTaskId);
++          updateVideoJobsForBatch(batchToken, job.id, {
++            status: submission.status,
++            attempt: nextAttempt,
++            providerTaskId,
++            videoUrl: result.videoUrl || '',
++            progress: typeof result.progress === 'number' ? result.progress : 0,
++            error: submission.status === 'failed'
++              ? videoErrorText(result.error || result.raw?.error) || (submission.missingProviderTaskId ? '视频服务没有返回可轮询任务 ID' : '视频生成失败')
++              : ''
++          });
++        } catch (err) {
++          if (batchToken !== videoBatchRunRef.current) return;
++          updateVideoJobsForBatch(batchToken, job.id, {
++            status: 'failed',
++            attempt: nextAttempt,
++            error: err instanceof Error ? err.message : '视频生成提交失败'
++          });
++        }
++      }
++    };
++    await Promise.all([submitNext(), submitNext()]);
++    if (batchToken === videoBatchRunRef.current) scheduleVideoBatchPoll(batchToken, 1);
++  }
++
++  function invalidateVideoBatch() {
++    videoBatchRunRef.current += 1;
++    videoRecoveryKeyRef.current = '';
++    clearVideoPollTimer();
++  }
++
++  function hasActiveVideoJobs(snapshot: WorkspaceSnapshot | null) {
++    return resumableVideoJobs(productionFlowFromWorkspace(snapshot).videoJobs as VideoRenderJob[]).length > 0 ||
++      productionFlowFromWorkspace(snapshot).videoJobs.some((job) => job.status === 'submitting');
++  }
++
++  function prepareVideoTaskDraft() {
++    if (!workspace) return;
++    if (hasActiveVideoJobs(workspace)) {
++      setError('视频任务正在提交或生成，完成或失败后才能更新视频任务。');
++      return;
++    }
++    invalidateVideoBatch();
++    const baseWorkspace = updateProductionFlow(workspace, (flow) => ({ ...flow, currentStage: 'video', videoJobs: [] }));
++    workspaceRef.current = baseWorkspace;
++    setWorkspace(baseWorkspace);
++    void requestStageDraft(
++      'video',
++      baseWorkspace,
++      undefined,
++      '请基于已确认的制作包，重新准备可提交给视频模型的镜头级生成任务、首帧提示、角色一致性提示和渲染参数。不要声称已渲染 MP4。',
++      messages.slice(-10),
++      true
++    );
++  }
++
++  function saveVideoTaskDraft(
++    promptId: string,
++    summary: string,
++    transform: (data: AssetPrompts) => AssetPrompts
++  ) {
++    if (!workspace) return;
++    if (hasActiveVideoJobs(workspace)) {
++      setError('视频任务正在提交或生成，完成或失败后才能修改镜头。');
++      return;
++    }
++    const base = applyPatchesForPreview(workspace, readPendingPatches(workspace)) || workspace;
++    const before = getFile(workspace, 'asset_prompts.json')?.content || '';
++    const source = parseJsonFile<AssetPrompts>(base, 'asset_prompts.json', {});
++    const nextData = transform(source);
++    const after = JSON.stringify(nextData, null, 2);
++    if (after === getFile(base, 'asset_prompts.json')?.content) return;
++    invalidateVideoBatch();
++    setWorkspace((current) => {
++      if (!current) return current;
++      const flow = productionFlowFromWorkspace(current);
++      const record = flow.stages.video;
++      const nextFlow = {
++        ...flow,
++        currentStage: 'video' as const,
++        stages: {
++          ...flow.stages,
++          video: {
++            ...record,
++            status: 'ready_for_review' as const,
++            draftVersion: Math.max(record.draftVersion || 0, record.confirmedVersion || 0) + 1,
++            confirmedVersion: null,
++            confirmedAt: null,
++            confirmedBy: null,
++            confirmationKey: null,
++            generationJobId: uid('video-manual'),
++            error: null
++          }
++        },
++        videoJobs: []
++      };
++      const patch: PatchOperation = {
++        id: uid('patch'),
++        filePath: 'asset_prompts.json',
++        summary,
++        before,
++        after,
++        riskLevel: 'low',
++        requiresApproval: true
++      };
++      return writeProductionFlow(appendPendingPatches(current, [patch]), nextFlow);
++    });
++  }
++
++  function updateVideoTaskPrompt(promptId: string, prompt: string) {
++    const nextPrompt = prompt.trim();
++    if (!nextPrompt) {
++      setError('镜头提示词不能为空。');
++      return;
++    }
++    saveVideoTaskDraft(promptId, `修改镜头 ${promptId} 的视频提示词`, (data) => ({
++      ...data,
++      prompts: (data.prompts || []).map((item) => item.id === promptId ? { ...item, prompt: nextPrompt } : item)
++    }));
++  }
++
++  function reprepareVideoTask(promptId: string) {
++    saveVideoTaskDraft(promptId, `重新准备镜头 ${promptId} 的视频任务`, (data) => {
++      const prompt = (data.prompts || []).find((item) => item.id === promptId);
++      if (!prompt) return data;
++      const queue = data.renderQueue || [];
++      const found = queue.some((item) => item.id === promptId);
++      return {
++        ...data,
++        prompts: (data.prompts || []).map((item) => item.id === promptId ? { ...item } : item),
++        renderQueue: found
++          ? queue.map((item) => item.id === promptId ? { ...item, status: 'ready', preparedAt: now() } : item)
++          : [...queue, {
++              id: promptId,
++              sceneId: prompt.sceneId,
++              status: 'ready',
++              preparedAt: now(),
++              referenceImageUrl: prompt.referenceImageUrl,
++              referenceImages: prompt.referenceImages,
++              mode: prompt.mode
++            }]
++      };
++    });
++  }
++
++  function replaceVideoTaskReference(promptId: string, file?: File) {
++    if (!file || !file.type.startsWith('image/')) {
++      setError('替换失败：请选择图片文件。');
++      return;
++    }
++    if (file.size <= 0 || file.size > MAX_PERSISTED_IMAGE_BYTES) {
++      setError(`替换失败：图片需大于 0 且不超过 ${MAX_PERSISTED_IMAGE_BYTES / 1024 / 1024}MB。`);
++      return;
++    }
++    const reader = new FileReader();
++    reader.onload = () => {
++      const imageUrl = typeof reader.result === 'string' ? reader.result : '';
++      if (!imageUrl) {
++        setError('替换失败：图片读取失败。');
++        return;
++      }
++      if (!canPersistUploadedDataUrl(imageUrl)) {
++        setError('工作区未持久化/请换小图。');
++        return;
++      }
++      saveVideoTaskDraft(promptId, `替换镜头 ${promptId} 的参考图`, (data) => ({
++        ...data,
++        prompts: (data.prompts || []).map((item) => item.id === promptId
++          ? { ...item, referenceImageUrl: imageUrl, referenceImages: [imageUrl] }
++          : item),
++        renderQueue: (data.renderQueue || []).map((item) => item.id === promptId
++          ? { ...item, referenceImageUrl: imageUrl, referenceImages: [imageUrl] }
++          : item)
++      }));
++    };
++    reader.onerror = () => setError('替换失败：图片读取失败。');
++    reader.readAsDataURL(file);
++  }
++
++  async function confirmVideoTasksAndStartRendering() {
++    if (!workspace || videoSubmissionInFlightRef.current) return;
++    const flow = productionFlowFromWorkspace(workspace);
++    const record = flow.stages.video;
++    const draftWorkspace = applyPatchesForPreview(workspace, readPendingPatches(workspace)) || workspace;
++    const draftData = parseJsonFile<AssetPrompts>(draftWorkspace, 'asset_prompts.json', {});
++    const prompts = normalizedVideoPrompts(draftData);
++    const missingReferences = prompts.filter((prompt) => referenceImagesForPrompt(prompt).length === 0);
++    if (record.status !== 'ready_for_review') {
++      setError('视频任务必须处于待确认状态；有修改时请重新最终确认。');
++      return;
++    }
++    if (!prompts.length) {
++      setError('没有可提交的视频镜头任务。请先准备 video 类型且提示词非空的任务。');
++      return;
++    }
++    if (missingReferences.length) {
++      setError(`以下镜头缺少参考图，不能提交：${missingReferences.map((item) => item.id).join('、')}。`);
++      return;
++    }
++
++    videoSubmissionInFlightRef.current = true;
++    setVideoConfirming(true);
+     try {
+-      const res = await fetch('/api/video/render', {
++      const confirmation = confirmStageInWorkspace(workspace, {
++        stage: 'video',
++        outputFiles: ['asset_prompts.json'],
++        expectedDraftVersion: record.draftVersion || 0,
++        confirmationKey: uid('video-confirm'),
++        confirmedAt: now(),
++        confirmedBy: 'local-user',
++        nextGenerationJobId: null,
++        sourceVersions: record.sourceVersions
++      });
++      const confirmedData = parseJsonFile<AssetPrompts>(confirmation.workspace, 'asset_prompts.json', {});
++      const jobs = createVideoRenderJobs((confirmedData.prompts || []).map((item, index) => ({
++        ...item,
++        id: item.id?.trim() || `video-prompt-${index + 1}`
++      })));
++      if (!jobs.length) throw new Error('确认后的任务包没有可提交的视频镜头。');
++      const batchToken = videoBatchRunRef.current + 1;
++      videoBatchRunRef.current = batchToken;
++      videoRecoveryKeyRef.current = '';
++      clearVideoPollTimer();
++      const persisted = updateProductionFlow(confirmation.workspace, (currentFlow) => ({
++        ...currentFlow,
++        currentStage: 'video',
++        stages: {
++          ...currentFlow.stages,
++          video: { ...currentFlow.stages.video, status: 'rendering', error: null }
++        },
++        videoJobs: jobs
++      }));
++      workspaceRef.current = persisted;
++      setWorkspace(persisted);
++      await submitVideoRenderJobs(jobs, batchToken, confirmedData, async (body) => fetch('/api/video/render', {
+         method: 'POST',
+         headers: { 'content-type': 'application/json' },
+-        body: JSON.stringify({
+-          prompt: buildVideoRenderPrompt(prompt, targetDuration),
+-          negativePrompt: chineseOnlyVideoNegativePrompt(committedPrompts.characterConsistency?.negativePrompt),
+-          image: referenceImages.length === 1 && renderMode !== 'keyframes' ? referenceImages[0] : undefined,
+-          keyframes: referenceImages.length > 1 || renderMode === 'keyframes' ? referenceImages : undefined,
+-          mode: renderMode,
+-          spec: renderSpec
+-        })
+-      });
+-      const data = (await res.json()) as VideoRenderApiResponse;
+-      if (!res.ok) throw new Error(data.error || '视频生成提交失败');
+-      const nextVideoId = data.video_id || data.task_id || '';
+-      const status = String(data.status || '').toLowerCase();
+-      const failed = VIDEO_FAILED_STATUSES.includes(status);
+-      setVideoRender({
+-        status: data.videoUrl ? 'completed' : failed ? 'failed' : 'submitted',
+-        videoId: nextVideoId,
+-        videoUrl: data.videoUrl || '',
+-        progress: typeof data.progress === 'number' ? data.progress : undefined,
+-        error: failed ? videoErrorText(data.error || data.raw?.error) || '视频生成失败' : ''
+-      });
+-      if (nextVideoId && !data.videoUrl && !failed) scheduleVideoPoll(nextVideoId, 1);
++        body: JSON.stringify(body)
++      }));
+     } catch (err) {
+-      const message = err instanceof Error ? err.message : '视频生成提交失败';
+-      setVideoRender({ status: 'failed', error: message });
++      setError(err instanceof Error ? err.message : '确认视频任务失败');
++    } finally {
++      videoSubmissionInFlightRef.current = false;
++      setVideoConfirming(false);
+     }
+   }
+ 
++  async function retryFailedVideoTasks() {
++    if (!workspace || videoSubmissionInFlightRef.current) return;
++    const flow = productionFlowFromWorkspace(workspace);
++    const failedJobs = retryableVideoJobs(flow.videoJobs as VideoRenderJob[]);
++    if (!failedJobs.length) {
++      setError('当前没有可重试的失败镜头。');
++      return;
++    }
++    const data = parseJsonFile<AssetPrompts>(workspace, 'asset_prompts.json', {});
++    videoSubmissionInFlightRef.current = true;
++    setVideoConfirming(true);
++    const batchToken = videoBatchRunRef.current + 1;
++    videoBatchRunRef.current = batchToken;
++    videoRecoveryKeyRef.current = '';
++    clearVideoPollTimer();
++    try {
++      await submitVideoRenderJobs(failedJobs, batchToken, data, async (body) => fetch('/api/video/render', {
++        method: 'POST',
++        headers: { 'content-type': 'application/json' },
++        body: JSON.stringify(body)
++      }));
++    } finally {
++      videoSubmissionInFlightRef.current = false;
++      setVideoConfirming(false);
++    }
++  }
++
+   function selectAsset(id: string) {
+     setSelectedAssetId(id);
+     const asset = assets.find((item) => item.id === id);
+@@ -4434,31 +4820,27 @@
+                         ready={handoffReady}
+                         missing={handoffMissing}
+                         data={{
+-                          visualStyle: committedPrompts.visualStyle,
++                          visualStyle: assetPrompts.visualStyle,
+                           renderSpec: {
+-                            ...(committedPrompts.renderSpec || {}),
++                            ...(assetPrompts.renderSpec || {}),
+                             cameraMove: cameraMoveLabel(videoSpec.cameraMove),
+                             frameLock: frameLockLabel(videoSpec.frameLock)
+                           },
+-                          character: committedPrompts.characterConsistency,
+-                          prompts: committedPrompts.prompts,
+-                          renderQueue: committedPrompts.renderQueue
++                          character: assetPrompts.characterConsistency,
++                          prompts: normalizedVideoPrompts(assetPrompts),
++                          renderQueue: assetPrompts.renderQueue
+                         }}
+-                        renderState={videoRender}
+-                        onPrepare={() => workspace && void requestStageDraft(
+-                          'video',
+-                          workspace,
+-                          undefined,
+-                          '请基于已确认的制作包，重新准备可提交给视频模型的镜头级生成任务、首帧提示、角色一致性提示和渲染参数。不要声称已渲染 MP4。',
+-                          messages.slice(-10),
+-                          true
+-                        )}
++                        jobs={productionFlow.videoJobs}
++                        batchStatus={videoBatchStatus(productionFlow.videoJobs as VideoRenderJob[])}
++                        confirming={videoConfirming}
++                        editingDisabled={hasActiveVideoJobs(workspace)}
++                        onPrepare={prepareVideoTaskDraft}
++                        onConfirmVideoTasks={() => void confirmVideoTasksAndStartRendering()}
++                        onRetryFailed={() => void retryFailedVideoTasks()}
++                        onUpdatePrompt={updateVideoTaskPrompt}
++                        onReplaceReference={replaceVideoTaskReference}
++                        onReprepareShot={reprepareVideoTask}
+                       />
+-                      <div className="production-review-actions stage-confirmation">
+-                        <button type="button" className="btn primary" onClick={() => void confirmProductionStage('video')}>
+-                          <IconCheck /> 确认视频任务并开始生成
+-                        </button>
+-                      </div>
+                     </div>
+                   )}
+                 </section>
+@@ -4535,17 +4917,17 @@
+                 </section>
+               )}
+ 
+-              {selectedNodePatches.length > 0 && (
++              {genericSelectedNodePatches.length > 0 && (
+                 <section className="studio-inspector-panel node-patch-panel">
+                   <div className="studio-inspector-title">
+                     <IconGitMerge />
+                     <div>
+                       <strong>当前节点 patch</strong>
+-                      <small>{selectedNodePatches.length} 个改动等待审批</small>
++                      <small>{genericSelectedNodePatches.length} 个改动等待审批</small>
+                     </div>
+                   </div>
+                   <ApprovalQueue
+-                    patches={selectedNodePatches}
++                    patches={genericSelectedNodePatches}
+                     selectedId={selectedPatch?.id || ''}
+                     onSelect={(id) => setSelectedPatchId(id)}
+                     onApprove={(id) => approvePatchIds([id])}
+@@ -4636,7 +5018,7 @@
+                     </div>
+                   </div>
+                   <ApprovalQueue
+-                    patches={pendingPatches}
++                    patches={genericPendingPatches}
+                     selectedId={selectedPatch?.id || ''}
+                     onSelect={(id) => setSelectedPatchId(id)}
+                     onApprove={(id) => approvePatchIds([id])}
+--- .superpowers/sdd/task-8-before/app/page.model-config-ui.test.cjs	2026-07-11 22:21:05
++++ app/page.model-config-ui.test.cjs	2026-07-11 23:00:00
+@@ -109,9 +109,14 @@
+   assert.match(source, /selectedAssetFileName === 'asset_prompts\.json'\s+\?\s+formatAssetPromptsReview\(assetPrompts\)/);
+ });
+ 
+-test('video generation handoff submits prepared tasks to the video render API', () => {
+-  assert.match(source, /async function submitVideoRender/);
++test('video generation starts only through final confirmation or failed-job retry', () => {
++  assert.match(source, /createVideoRenderJobs/);
++  assert.match(source, /async function confirmVideoTasksAndStartRendering/);
++  assert.match(source, /async function retryFailedVideoTasks/);
++  assert.match(source, /async function submitVideoRenderJobs/);
+   assert.match(source, /fetch\('\/api\/video\/render'/);
++  assert.doesNotMatch(source, /async function submitVideoRender\(/);
++  assert.doesNotMatch(source, /const \[videoRender, setVideoRender\]/);
+   assert.match(source, /function buildVideoRenderPrompt/);
+   assert.match(source, /referenceImageUrl\?: string/);
+   assert.match(source, /referenceImages\?: string\[\]/);
+@@ -131,15 +136,37 @@
+   assert.match(source, /const VIDEO_MAX_NUM_FRAMES = 409/);
+   assert.match(source, /function normalizeAgnesNumFrames/);
+   assert.match(source, /roundFrameRate\(VIDEO_MAX_NUM_FRAMES \/ seconds\)/);
+-  assert.match(source, /prompt: buildVideoRenderPrompt\(prompt, targetDuration\)/);
++  assert.match(source, /prompt: buildVideoRenderPrompt\(prompt, targetDuration, data\)/);
+   assert.match(source, /image: referenceImages.length === 1 && renderMode !== 'keyframes' \? referenceImages\[0\] : undefined/);
+   assert.match(source, /keyframes: referenceImages.length > 1 \|\| renderMode === 'keyframes' \? referenceImages : undefined/);
+   assert.match(source, /mode: renderMode/);
+-  assert.match(runtimeSource, /renderState\.videoUrl/);
+-  assert.match(runtimeSource, /onRender/);
+-  assert.match(runtimeSource, /生成本节视频/);
+-  assert.match(runtimeSource, /全部小节确认后再合成完整视频/);
+-  assert.match(runtimeSource, /查看视频/);
++  assert.equal((source.match(/fetch\('\/api\/video\/render'/g) || []).length, 2, 'only final confirmation and failed retry may POST video renders');
++  assert.doesNotMatch(runtimeSource, /VideoRenderState/);
++  assert.doesNotMatch(runtimeSource, /onRender/);
++  assert.match(runtimeSource, /onConfirmVideoTasks/);
++  assert.match(runtimeSource, /onRetryFailed/);
++  assert.match(runtimeSource, /onUpdatePrompt/);
++  assert.match(runtimeSource, /onReplaceReference/);
++  assert.match(runtimeSource, /onReprepareShot/);
++  assert.match(runtimeSource, /全部片段已完成，等待合成为单一成片文件/);
++  assert.match(runtimeSource, /<video/);
++});
++
++test('generic approval cannot consume a video task patch or invoke generic video confirmation', () => {
++  assert.match(source, /if \(productionStage === 'video'\)/);
++  assert.match(source, /视频任务 patch 只能通过“确认视频任务并开始生成”提交/);
++  assert.match(source, /const genericPendingPatches = pendingPatches\.filter\(\(patch\) => productionStageForFile\(patch\.filePath\) !== 'video'\)/);
++  assert.match(source, /const genericSelectedNodePatches = selectedNodePatches\.filter\(\(patch\) => productionStageForFile\(patch\.filePath\) !== 'video'\)/);
++  assert.match(source, /if \(stage === 'video'\) \{/);
++  assert.match(source, /通用确认不能消费视频任务 patch/);
++});
++
++test('video task patches never enter a generic ApprovalQueue', () => {
++  const queueBindings = Array.from(source.matchAll(/<ApprovalQueue[\s\S]*?patches=\{([^}]+)\}/g)).map((match) => match[1].trim());
++  assert.deepEqual(queueBindings, ['genericSelectedNodePatches', 'genericPendingPatches']);
++  assert.doesNotMatch(source, /<ApprovalQueue[\s\S]*?patches=\{(?:selectedNodePatches|pendingPatches)\}/);
++  assert.match(source, /const selectedNodePatches = selectedNode \? pendingPatches\.filter/);
++  assert.match(source, /onConfirmVideoTasks=\{\(\) => void confirmVideoTasksAndStartRendering\(\)\}/);
+ });
+ 
+ test('website can load the Xiaopeng V2 production workspace through a local demo URL', () => {
+@@ -284,16 +311,43 @@
+   assert.match(source, /setLoading\(activeStageGenerationCountRef\.current > 0\)/);
+ });
+ 
+-test('video generation status keeps polling until the provider reaches a terminal state', () => {
++test('video generation polls the submitted batch until every provider task reaches a terminal state', () => {
+   assert.match(source, /const VIDEO_POLL_INTERVAL_MS = 65000/);
+   assert.match(source, /const VIDEO_POLL_MAX_ATTEMPTS = \d+/);
+-  assert.match(source, /async function pollVideoRender\(videoId = videoRender\.videoId \|\| '', attempt = 1\)/);
+-  assert.match(source, /String\(data\.status \|\| ''\)\.toLowerCase\(\)/);
++  assert.match(source, /async function pollVideoRenderBatch\(batchToken: number, attempt = 1\)/);
++  assert.match(source, /Promise\.all\(pollingJobs\.map/);
++  assert.match(source, /normalizeVideoProviderStatus\(data\.status, data\.videoUrl\)/);
+   assert.match(source, /attempt < VIDEO_POLL_MAX_ATTEMPTS/);
+-  assert.match(source, /scheduleVideoPoll\(nextVideoId, attempt \+ 1\)/);
+-  assert.match(source, /scheduleVideoPoll\(nextVideoId, 1\)/);
++  assert.match(source, /scheduleVideoBatchPoll\(batchToken, attempt \+ 1\)/);
++  assert.match(source, /scheduleVideoBatchPoll\(batchToken, 1\)/);
++  assert.match(source, /batchToken !== videoBatchRunRef\.current/);
++  assert.match(source, /timeoutPendingVideoJobIds\(outcomes\)/);
+ });
+ 
++test('active video jobs disable all task-edit entry points before they can invalidate a batch', () => {
++  assert.match(source, /function hasActiveVideoJobs/);
++  assert.match(source, /if \(hasActiveVideoJobs\(workspace\)\) \{/);
++  assert.match(source, /editingDisabled=\{hasActiveVideoJobs\(workspace\)\}/);
++  assert.match(runtimeSource, /editingDisabled: boolean/);
++  assert.match(runtimeSource, /disabled=\{editingDisabled\}/);
++});
++
++test('restored submitted video jobs schedule one guarded recovery polling batch', () => {
++  assert.match(source, /const videoRecoveryKeyRef = useRef\(''\)/);
++  assert.match(source, /videoRecoveryBatchKey\(workspace\.projectId, allBatchJobs\)/);
++  assert.match(source, /const hasActiveBatchJobs = allBatchJobs\.some/);
++  assert.match(source, /if \(!hasActiveBatchJobs\) \{/);
++  assert.match(source, /if \(!resumableJobs\.length\) return;/);
++  assert.match(source, /if \(videoSubmissionInFlightRef\.current\) return;/);
++  assert.match(source, /if \(videoRecoveryKeyRef\.current === recoveryKey\) return/);
++  assert.match(source, /scheduleVideoBatchPoll\(batchToken, 1\)/);
++});
++
++test('synchronous completed submissions do not require a provider task id', () => {
++  assert.match(source, /finalizeVideoSubmission\(normalizedStatus, providerTaskId\)/);
++  assert.match(source, /submission\.missingProviderTaskId/);
++});
++
+ test('output workbench adopts a progressive practical production layout', () => {
+   assert.match(source, /className="studio-workbench"/);
+   assert.match(source, /className="studio-assistant"/);
+@@ -462,11 +516,11 @@
+     '确认脚本并生成角色',
+     '确认角色并生成场景',
+     '确认场景并生成分镜',
+-    '确认分镜并生成视频任务',
+-    '确认视频任务并开始生成'
++    '确认分镜并生成视频任务'
+   ]) {
+     assert.equal(source.split(label).length - 1, 1, `${label} should occur exactly once`);
+   }
++  assert.equal((runtimeSource.match(/确认视频任务并开始生成/g) || []).length, 1, 'video final confirmation should have one visible action');
+ });
+ 
+ test('character stage renders confirmable role cards from proposed characters JSON', () => {
+--- .superpowers/sdd/task-8-before/components/runtime.tsx	2026-07-11 22:21:05
++++ components/runtime.tsx	2026-07-11 22:45:04
+@@ -7,7 +7,8 @@
+   MissionAsset,
+   PatchOperation,
+   PreviewScene,
+-  ToolEvent
++  ToolEvent,
++  VideoRenderJob
+ } from '../lib/types';
+ import {
+   IconAlert,
+@@ -332,16 +333,18 @@
+     renderTask?: string;
+     durationSeconds?: number;
+     prompt?: string;
++    referenceImageUrl?: string;
++    referenceImages?: string[];
++    mode?: string;
+   }>;
+-  renderQueue?: Array<{ id?: string; sceneId?: string; status?: string }>;
+-};
+-
+-export type VideoRenderState = {
+-  status: 'idle' | 'submitting' | 'submitted' | 'polling' | 'completed' | 'failed';
+-  videoId?: string;
+-  videoUrl?: string;
+-  progress?: number;
+-  error?: string;
++  renderQueue?: Array<{
++    id?: string;
++    sceneId?: string;
++    status?: string;
++    referenceImageUrl?: string;
++    referenceImages?: string[];
++    mode?: string;
++  }>;
+ };
+ 
+ const SPEC_FIELDS: Array<{ key: string; label: string }> = [
+@@ -360,17 +363,29 @@
+   missing,
+   data,
+   onPrepare,
+-  onRender,
+-  onPoll,
+-  renderState
++  jobs,
++  batchStatus,
++  confirming,
++  editingDisabled,
++  onConfirmVideoTasks,
++  onRetryFailed,
++  onUpdatePrompt,
++  onReplaceReference,
++  onReprepareShot
+ }: {
+   ready: boolean;
+   missing: string;
+   data: HandoffData;
+   onPrepare: () => void;
+-  onRender?: () => void;
+-  onPoll?: () => void;
+-  renderState?: VideoRenderState;
++  jobs: VideoRenderJob[];
++  batchStatus: 'rendering' | 'failed' | 'clips_ready';
++  confirming: boolean;
++  editingDisabled: boolean;
++  onConfirmVideoTasks: () => void;
++  onRetryFailed: () => void;
++  onUpdatePrompt: (promptId: string, prompt: string) => void;
++  onReplaceReference: (promptId: string, file?: File) => void;
++  onReprepareShot: (promptId: string) => void;
+ }) {
+   if (!ready) {
+     return (
+@@ -382,10 +397,22 @@
+     );
+   }
+ 
+-  const prompts = data.prompts || [];
++  const prompts = (data.prompts || []).filter((shot) => shot.type === 'video' && Boolean(shot.prompt?.trim()));
+   const character = data.character || {};
+   const spec = data.renderSpec || {};
+-  const taskCount = Math.max(data.renderQueue?.length || 0, prompts.length);
++  const taskCount = prompts.length;
++  const failedJobs = jobs.filter((job) => job.status === 'failed');
++  const jobFor = (promptId: string | undefined) => jobs.find((job) => job.promptId === promptId);
++  const referencesFor = (shot: NonNullable<HandoffData['prompts']>[number]) =>
++    Array.from(new Set([shot.referenceImageUrl, ...(shot.referenceImages || [])].filter((value): value is string => Boolean(value?.trim()))));
++  const jobLabel = (job?: VideoRenderJob) => {
++    if (!job) return '待最终确认';
++    if (job.status === 'completed') return '片段已完成';
++    if (job.status === 'failed') return '生成失败';
++    if (job.status === 'submitting') return '提交中';
++    if (job.status === 'submitted' || job.status === 'polling') return `生成中${typeof job.progress === 'number' ? ` ${job.progress}%` : ''}`;
++    return '等待提交';
++  };
+ 
+   return (
+     <div>
+@@ -422,19 +449,47 @@
+ 
+       <div className="shot-list">
+         {prompts.length ? (
+-          prompts.map((shot, index) => (
+-            <div className="shot-card" key={shot.id || index}>
++          prompts.map((shot, index) => {
++            const promptId = shot.id || `video-prompt-${index + 1}`;
++            const job = jobFor(promptId);
++            const references = referencesFor(shot);
++            const missingReference = references.length === 0;
++            return (
++            <div className="shot-card" key={promptId} style={{ minHeight: 420, display: 'grid', alignContent: 'start', gap: 10 }}>
+               <div className="shot-top">
+-                <span className={`shot-type ${shot.type === 'image' ? 'image' : 'video'}`}>
+-                  {shot.type === 'image' ? <IconCamera /> : <IconFilm />}
+-                  {shot.type === 'image' ? '首帧图' : '视频镜头'}
++                <span className="shot-type video">
++                  <IconFilm /> 视频镜头
+                 </span>
+                 <strong>{shot.renderTask || `镜头 ${index + 1}`}</strong>
+                 <small>{shot.durationSeconds ? `${shot.durationSeconds}s` : ''}</small>
+               </div>
+-              <pre className="shot-prompt">{shot.prompt}</pre>
++              <div className="handoff-subject">模式：{shot.mode || '待指定'} · {missingReference ? '缺少参考图' : `已绑定 ${references.length} 张参考图`}</div>
++              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 8 }}>
++                {references.map((reference) => (
++                  <img key={reference} src={reference} alt={`${shot.renderTask || `镜头 ${index + 1}`}参考图`} style={{ width: '100%', height: 132, objectFit: 'cover' }} />
++                ))}
++              </div>
++              <textarea
++                aria-label={`${shot.renderTask || `镜头 ${index + 1}`}提示词`}
++                defaultValue={shot.prompt}
++                onBlur={(event) => onUpdatePrompt(promptId, event.currentTarget.value)}
++                disabled={editingDisabled}
++                style={{ width: '100%', minHeight: 112, resize: 'vertical' }}
++              />
++              <div className="handoff-subject">{jobLabel(job)}{job?.error ? `：${job.error}` : ''}</div>
++              {job?.videoUrl && <video controls src={job.videoUrl} style={{ width: '100%', maxHeight: 180 }} />}
++              <div className="handoff-actions" style={{ flexWrap: 'wrap' }}>
++                <label className="btn sm" aria-disabled={editingDisabled} style={editingDisabled ? { opacity: 0.55, pointerEvents: 'none' } : undefined}>
++                  <IconCamera /> 替换参考图
++                  <input type="file" accept="image/*" hidden disabled={editingDisabled} onChange={(event) => onReplaceReference(promptId, event.target.files?.[0])} />
++                </label>
++                <button type="button" className="btn sm" disabled={editingDisabled} onClick={() => onReprepareShot(promptId)}>
++                  <IconFilm /> 重新准备此镜头
++                </button>
++              </div>
+             </div>
+-          ))
++            );
++          })
+         ) : (
+           <div className="handoff-empty">
+             <IconFilm />
+@@ -448,50 +503,23 @@
+           <IconClock /> {taskCount ? `已准备 ${taskCount} 个镜头任务` : '待准备视频任务'}
+         </span>
+         <div className="handoff-actions">
+-          <button type="button" className="btn sm" onClick={onPrepare}>
++          <button type="button" className="btn sm" onClick={onPrepare} disabled={editingDisabled}>
+             <IconFilm /> {taskCount ? '更新视频任务' : '准备视频任务'}
+           </button>
+-          {onRender && (
+-            <button
+-              type="button"
+-              className="btn sm primary"
+-              onClick={onRender}
+-              disabled={!taskCount || renderState?.status === 'submitting' || renderState?.status === 'polling'}
+-            >
+-              <IconFilm /> {renderState?.status === 'submitting' ? '提交中' : '生成本节视频'}
++          <button type="button" className="btn sm primary" onClick={onConfirmVideoTasks} disabled={!taskCount || confirming || Boolean(missing)}>
++            <IconCheck /> {confirming ? '确认并提交中' : '确认视频任务并开始生成'}
++          </button>
++          {failedJobs.length > 0 && (
++            <button type="button" className="btn sm" onClick={onRetryFailed} disabled={confirming}>
++              <IconFilm /> 重试失败镜头（{failedJobs.length}）
+             </button>
+           )}
+         </div>
+       </div>
+ 
+-      {renderState && renderState.status !== 'idle' && (
+-        <div className={`video-render-card ${renderState.status}`}>
+-          <div>
+-            <strong>
+-              {renderState.status === 'completed'
+-                ? '视频已生成'
+-                : renderState.status === 'failed'
+-                  ? '生成失败'
+-                  : '视频任务已提交'}
+-            </strong>
+-            <p>
+-              {renderState.error ||
+-                (renderState.videoId ? `任务 ID：${renderState.videoId}` : '正在把镜头任务提交给视频模型。')}
+-              {typeof renderState.progress === 'number' ? ` · ${renderState.progress}%` : ''}
+-            </p>
+-          </div>
+-          <div className="handoff-actions">
+-            {renderState.videoUrl && (
+-              <a className="btn sm primary" href={renderState.videoUrl} target="_blank" rel="noreferrer">
+-                查看视频
+-              </a>
+-            )}
+-            {onPoll && renderState.videoId && renderState.status !== 'completed' && (
+-              <button type="button" className="btn sm" onClick={onPoll} disabled={renderState.status === 'polling'}>
+-                刷新状态
+-              </button>
+-            )}
+-          </div>
++      {jobs.length > 0 && (
++        <div className={`video-render-card ${batchStatus}`}>
++          <strong>{batchStatus === 'clips_ready' ? '全部片段已完成，等待合成为单一成片文件' : batchStatus === 'failed' ? '存在失败镜头，已完成片段会被保留' : '正在生成镜头片段'}</strong>
+         </div>
+       )}
+     </div>
+--- .superpowers/sdd/task-8-before/lib/videoRenderBatch.ts	2026-07-11 22:21:14
++++ lib/videoRenderBatch.ts	2026-07-11 22:59:36
+@@ -0,0 +1,109 @@
++import type { VideoRenderJob as ProductionVideoRenderJob } from './types';
++
++export type VideoRenderJob = ProductionVideoRenderJob & {
++  prompt: string;
++};
++
++const SUCCESSFUL_PROVIDER_STATUSES = new Set(['completed', 'succeeded', 'success', 'done']);
++const FAILED_PROVIDER_STATUSES = new Set(['failed', 'failure', 'error', 'rejected', 'cancelled', 'canceled', 'aborted']);
++
++export type VideoPromptInput = {
++  id?: string;
++  type?: string;
++  prompt?: string;
++};
++
++export function createVideoRenderJobs(prompts: VideoPromptInput[]): VideoRenderJob[] {
++  const promptIds = new Set<string>();
++
++  return prompts.flatMap((prompt, index) => {
++    const promptId = prompt.id?.trim() || `video-prompt-${index + 1}`;
++    if (prompt.type !== 'video' || !prompt.prompt?.trim() || promptIds.has(promptId)) return [];
++    promptIds.add(promptId);
++    return [{
++      id: `video-${promptId}`,
++      promptId,
++      prompt: prompt.prompt.trim(),
++      status: 'ready' as const,
++      attempt: 0,
++      progress: 0
++    }];
++  });
++}
++
++export function updateVideoRenderJob(
++  jobs: VideoRenderJob[],
++  id: string,
++  patch: Partial<VideoRenderJob>
++): VideoRenderJob[] {
++  const index = jobs.findIndex((job) => job.id === id);
++  if (index < 0) return jobs;
++
++  const current = jobs[index];
++  const next = {
++    ...current,
++    ...patch,
++    id: current.id,
++    promptId: current.promptId
++  };
++  if (Object.keys(next).every((key) => next[key as keyof VideoRenderJob] === current[key as keyof VideoRenderJob])) {
++    return jobs;
++  }
++
++  return jobs.map((job) => job.id === id ? next : job);
++}
++
++export function retryableVideoJobs(jobs: VideoRenderJob[]): VideoRenderJob[] {
++  return jobs.filter((job) => job.status === 'failed');
++}
++
++export function pendingVideoJobs(jobs: VideoRenderJob[]): VideoRenderJob[] {
++  return jobs.filter((job) => job.status === 'ready');
++}
++
++export function resumableVideoJobs(jobs: VideoRenderJob[]): VideoRenderJob[] {
++  return jobs.filter(
++    (job) => (job.status === 'submitted' || job.status === 'polling') && Boolean(job.providerTaskId)
++  );
++}
++
++export function unrecoverableRestoredVideoJobIds(jobs: VideoRenderJob[]): string[] {
++  return jobs
++    .filter((job) => (
++      job.status === 'ready' ||
++      ((job.status === 'submitting' || job.status === 'submitted' || job.status === 'polling') && !job.providerTaskId)
++    ))
++    .map((job) => job.id);
++}
++
++export function timeoutPendingVideoJobIds(outcomes: Array<{ id: string; pending: boolean }>): string[] {
++  return outcomes.filter((outcome) => outcome.pending).map((outcome) => outcome.id);
++}
++
++export function videoRecoveryBatchKey(projectId: string, jobs: VideoRenderJob[]): string {
++  return `${projectId}:${jobs.map((job) => `${job.id}@${job.attempt}`).sort().join('|')}`;
++}
++
++export function normalizeVideoProviderStatus(status: unknown, videoUrl?: string): 'completed' | 'failed' | 'submitted' {
++  const normalized = typeof status === 'string' ? status.trim().toLowerCase() : '';
++  if (SUCCESSFUL_PROVIDER_STATUSES.has(normalized)) return videoUrl ? 'completed' : 'failed';
++  if (FAILED_PROVIDER_STATUSES.has(normalized)) return 'failed';
++  return videoUrl ? 'completed' : 'submitted';
++}
++
++export function finalizeVideoSubmission(
++  normalizedStatus: 'completed' | 'failed' | 'submitted',
++  providerTaskId: string
++): { status: 'completed' | 'failed' | 'submitted'; missingProviderTaskId: boolean } {
++  const missingProviderTaskId = normalizedStatus === 'submitted' && !providerTaskId;
++  return {
++    status: missingProviderTaskId ? 'failed' : normalizedStatus,
++    missingProviderTaskId
++  };
++}
++
++export function videoBatchStatus(jobs: VideoRenderJob[]): 'rendering' | 'failed' | 'clips_ready' {
++  if (jobs.length > 0 && jobs.every((job) => job.status === 'completed')) return 'clips_ready';
++  if (jobs.some((job) => job.status === 'failed')) return 'failed';
++  return 'rendering';
++}
+--- .superpowers/sdd/task-8-before/lib/videoRenderBatch.test.cjs	2026-07-11 22:21:14
++++ lib/videoRenderBatch.test.cjs	2026-07-11 22:59:36
+@@ -0,0 +1,137 @@
++const assert = require('node:assert/strict');
++const fs = require('node:fs');
++const path = require('node:path');
++const test = require('node:test');
++const ts = require('typescript');
++
++function loadVideoRenderBatch() {
++  const filePath = path.join(__dirname, 'videoRenderBatch.ts');
++  assert.equal(fs.existsSync(filePath), true, 'videoRenderBatch.ts should define batch render state helpers');
++  const source = fs.readFileSync(filePath, 'utf8');
++  const output = ts.transpileModule(source, {
++    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 }
++  }).outputText;
++  const module = { exports: {} };
++  new Function('exports', 'module', output)(module.exports, module);
++  return module.exports;
++}
++
++function videoJob(status, promptId, videoUrl = '') {
++  return { id: `video-${promptId}`, promptId, status, attempt: 1, progress: status === 'completed' ? 100 : 0, videoUrl };
++}
++
++test('a confirmed task package creates one render job per non-empty video prompt with stable ids', () => {
++  const { createVideoRenderJobs } = loadVideoRenderBatch();
++  const prompts = [
++    { id: 'shot-1', type: 'video', prompt: '镜头一' },
++    { id: 'still-1', type: 'image', prompt: '首帧' },
++    { id: 'shot-2', type: 'video', prompt: ' 镜头二 ' },
++    { id: 'blank', type: 'video', prompt: '  ' },
++    { id: 'shot-1', type: 'video', prompt: '重复镜头' }
++  ];
++  const jobs = createVideoRenderJobs(prompts);
++
++  assert.deepEqual(jobs.map((job) => job.promptId), ['shot-1', 'shot-2']);
++  assert.deepEqual(jobs.map((job) => job.id), ['video-shot-1', 'video-shot-2']);
++  assert.equal(jobs[1].prompt, '镜头二');
++  assert.equal(jobs[0].status, 'ready');
++  assert.notStrictEqual(jobs, prompts);
++});
++
++test('job updates are immutable and preserve identity fields', () => {
++  const { updateVideoRenderJob } = loadVideoRenderBatch();
++  const jobs = [videoJob('submitted', 'shot-1'), videoJob('completed', 'shot-2', 'https://video/2.mp4')];
++  const updated = updateVideoRenderJob(jobs, 'video-shot-1', { progress: 42, status: 'polling', id: 'wrong-id', promptId: 'wrong-prompt' });
++
++  assert.notStrictEqual(updated, jobs);
++  assert.notStrictEqual(updated[0], jobs[0]);
++  assert.strictEqual(updated[1], jobs[1]);
++  assert.equal(updated[0].id, 'video-shot-1');
++  assert.equal(updated[0].promptId, 'shot-1');
++  assert.equal(updated[0].progress, 42);
++  assert.equal(jobs[0].progress, 0);
++});
++
++test('retry selection contains failed jobs only and keeps completed urls', () => {
++  const { retryableVideoJobs } = loadVideoRenderBatch();
++  const jobs = [videoJob('completed', 'shot-1', 'https://video/1.mp4'), videoJob('failed', 'shot-2'), videoJob('submitted', 'shot-3')];
++
++  assert.deepEqual(retryableVideoJobs(jobs).map((job) => job.promptId), ['shot-2']);
++  assert.equal(jobs[0].videoUrl, 'https://video/1.mp4');
++});
++
++test('pending jobs include ready work only and empty batches remain rendering', () => {
++  const { pendingVideoJobs, videoBatchStatus } = loadVideoRenderBatch();
++  const jobs = [videoJob('ready', 'a'), videoJob('submitting', 'b'), videoJob('submitted', 'c'), videoJob('polling', 'd'), videoJob('failed', 'e')];
++
++  assert.deepEqual(pendingVideoJobs(jobs).map((job) => job.promptId), ['a']);
++  assert.equal(videoBatchStatus([]), 'rendering');
++});
++
++test('only submitted or polling jobs with provider task ids are resumable after restoration', () => {
++  const { resumableVideoJobs } = loadVideoRenderBatch();
++  const jobs = [
++    { ...videoJob('submitted', 'a'), providerTaskId: 'provider-a' },
++    { ...videoJob('polling', 'b'), providerTaskId: 'provider-b' },
++    videoJob('submitted', 'missing-id'),
++    { ...videoJob('completed', 'done'), providerTaskId: 'provider-done' },
++    { ...videoJob('failed', 'failed'), providerTaskId: 'provider-failed' }
++  ];
++
++  assert.deepEqual(resumableVideoJobs(jobs).map((job) => job.promptId), ['a', 'b']);
++});
++
++test('restoration fails interrupted ready and active video jobs that have no provider task id', () => {
++  const { unrecoverableRestoredVideoJobIds } = loadVideoRenderBatch();
++  const jobs = [
++    videoJob('ready', 'ready-no-id'),
++    videoJob('submitting', 'submitting-no-id'),
++    videoJob('submitted', 'submitted-no-id'),
++    videoJob('polling', 'polling-no-id'),
++    { ...videoJob('submitted', 'submitted-with-id'), providerTaskId: 'provider-submitted' },
++    { ...videoJob('completed', 'completed'), providerTaskId: 'provider-completed', videoUrl: 'https://video/completed.mp4' }
++  ];
++
++  assert.deepEqual(unrecoverableRestoredVideoJobIds(jobs), [
++    'video-ready-no-id',
++    'video-submitting-no-id',
++    'video-submitted-no-id',
++    'video-polling-no-id'
++  ]);
++});
++
++test('a final poll attempt times out only outcomes still pending', () => {
++  const { timeoutPendingVideoJobIds } = loadVideoRenderBatch();
++  assert.deepEqual(timeoutPendingVideoJobIds([{ id: 'video-a', pending: false }]), []);
++  assert.deepEqual(timeoutPendingVideoJobIds([
++    { id: 'video-a', pending: false },
++    { id: 'video-b', pending: true }
++  ]), ['video-b']);
++});
++
++test('recovery identity remains stable through terminal updates and changes for a retry attempt', () => {
++  const { videoRecoveryBatchKey } = loadVideoRenderBatch();
++  const initial = [
++    { ...videoJob('polling', 'a'), attempt: 1, providerTaskId: 'provider-a' },
++    { ...videoJob('polling', 'b'), attempt: 1, providerTaskId: 'provider-b' }
++  ];
++  const afterACompletes = [{ ...initial[0], status: 'completed', videoUrl: 'https://video/a.mp4' }, initial[1]];
++  const afterRetry = [afterACompletes[0], { ...initial[1], status: 'submitted', attempt: 2, providerTaskId: 'provider-b-2' }];
++
++  assert.equal(videoRecoveryBatchKey('project-1', initial), videoRecoveryBatchKey('project-1', afterACompletes));
++  assert.notEqual(videoRecoveryBatchKey('project-1', initial), videoRecoveryBatchKey('project-1', afterRetry));
++});
++
++test('submission state requires a provider task id only while it remains submitted', () => {
++  const { finalizeVideoSubmission } = loadVideoRenderBatch();
++  assert.deepEqual(finalizeVideoSubmission('completed', ''), { status: 'completed', missingProviderTaskId: false });
++  assert.deepEqual(finalizeVideoSubmission('submitted', ''), { status: 'failed', missingProviderTaskId: true });
++  assert.deepEqual(finalizeVideoSubmission('failed', ''), { status: 'failed', missingProviderTaskId: false });
++});
++
++test('the batch completes only when every render job completes', () => {
++  const { videoBatchStatus } = loadVideoRenderBatch();
++  assert.equal(videoBatchStatus([videoJob('completed', 'a'), videoJob('submitted', 'b')]), 'rendering');
++  assert.equal(videoBatchStatus([videoJob('completed', 'a'), videoJob('failed', 'b')]), 'failed');
++  assert.equal(videoBatchStatus([videoJob('completed', 'a'), videoJob('completed', 'b')]), 'clips_ready');
++});
+--- /dev/null	2026-07-11 23:05:22
++++ app/api/video/render/route.ts	2026-07-11 22:43:57
+@@ -0,0 +1,252 @@
++import { NextResponse } from 'next/server';
++
++export const runtime = 'nodejs';
++export const dynamic = 'force-dynamic';
++
++type VideoRenderRequest = {
++  prompt?: string;
++  negativePrompt?: string;
++  image?: string | string[];
++  mode?: string;
++  keyframes?: string[];
++  spec?: Record<string, unknown>;
++};
++
++const AGNES_MIN_NUM_FRAMES = 81;
++const AGNES_MAX_NUM_FRAMES_BY_TIER: Record<string, number> = {
++  '480p': 961,
++  '720p': 409,
++  '1080p': 169
++};
++const SUCCESSFUL_PROVIDER_STATUSES = new Set(['completed', 'succeeded', 'success', 'done']);
++const FAILED_PROVIDER_STATUSES = new Set(['failed', 'failure', 'error', 'rejected', 'cancelled', 'canceled', 'aborted']);
++
++function videoConfig() {
++  const apiKey = process.env.VIDEO_API_KEY || process.env.CUSTOM_API_KEY || '';
++  const baseUrl = (process.env.VIDEO_BASE_URL || process.env.CUSTOM_BASE_URL || 'https://apihub.agnes-ai.com/v1').replace(/\/$/, '');
++  const model = process.env.VIDEO_MODEL || 'agnes-video-v2.0';
++  return { apiKey, baseUrl, model };
++}
++
++function redact(text: string) {
++  const { apiKey } = videoConfig();
++  return apiKey ? text.replaceAll(apiKey, '[redacted]') : text;
++}
++
++function sizeFromSpec(spec: Record<string, unknown> = {}) {
++  const aspectRatio = String(spec.aspectRatio || spec.aspect_ratio || '9:16');
++  const tier = String(spec.resolutionTier || spec.resolution || '720p');
++  const table: Record<string, Record<string, { width: number; height: number }>> = {
++    '9:16': {
++      '480p': { width: 480, height: 854 },
++      '720p': { width: 720, height: 1280 },
++      '1080p': { width: 1080, height: 1920 }
++    },
++    '16:9': {
++      '480p': { width: 854, height: 480 },
++      '720p': { width: 1280, height: 720 },
++      '1080p': { width: 1920, height: 1080 }
++    },
++    '1:1': {
++      '480p': { width: 480, height: 480 },
++      '720p': { width: 720, height: 720 },
++      '1080p': { width: 1080, height: 1080 }
++    }
++  };
++  return table[aspectRatio]?.[tier] || table['9:16']['720p'];
++}
++
++function numberFromSpec(value: unknown, fallback: number) {
++  const number = typeof value === 'number' ? value : Number(value);
++  return Number.isFinite(number) ? number : fallback;
++}
++
++function maxFramesForSpec(spec: Record<string, unknown> = {}) {
++  const tier = String(spec.resolutionTier || spec.resolution || '720p');
++  return AGNES_MAX_NUM_FRAMES_BY_TIER[tier] || AGNES_MAX_NUM_FRAMES_BY_TIER['720p'];
++}
++
++function normalizeAgnesNumFrames(frames: number, maxFrames: number) {
++  const bounded = Math.min(maxFrames, Math.max(AGNES_MIN_NUM_FRAMES, Math.round(frames)));
++  return Math.min(maxFrames, Math.max(AGNES_MIN_NUM_FRAMES, Math.round((bounded - 1) / 8) * 8 + 1));
++}
++
++function roundFrameRate(frameRate: number) {
++  return Math.min(60, Math.max(1, Math.round(frameRate * 10) / 10));
++}
++
++function timingFromSpec(spec: Record<string, unknown> = {}) {
++  const frameRate = roundFrameRate(numberFromSpec(spec.frameRate || spec.frame_rate, 24));
++  const targetDuration = numberFromSpec(spec.targetDurationSeconds || spec.target_duration_seconds, 0);
++  const maxFrames = maxFramesForSpec(spec);
++  if (targetDuration > 0 && targetDuration * frameRate > maxFrames) {
++    return {
++      numFrames: maxFrames,
++      frameRate: roundFrameRate(maxFrames / targetDuration)
++    };
++  }
++  return {
++    numFrames: normalizeAgnesNumFrames(numberFromSpec(spec.numFrames || spec.num_frames, 121), maxFrames),
++    frameRate
++  };
++}
++
++function firstString(value: unknown): string {
++  if (typeof value === 'string') return value;
++  if (Array.isArray(value)) return firstString(value[0]);
++  if (value && typeof value === 'object') {
++    const object = value as Record<string, unknown>;
++    return firstString(object.url || object.video_url || object.output_url || object.file_url);
++  }
++  return '';
++}
++
++function stringList(value: unknown): string[] {
++  if (typeof value === 'string') return value.trim() ? [value.trim()] : [];
++  if (Array.isArray(value)) return value.flatMap((item) => stringList(item));
++  return [];
++}
++
++function providerError(value: Record<string, unknown>, data: Record<string, unknown>, output: Record<string, unknown>) {
++  return firstString(value.error || value.message || data.error || data.message || output.error || output.message);
++}
++
++function normalizedProviderStatus(status: unknown, videoUrl: string): 'completed' | 'failed' | 'submitted' {
++  const normalized = typeof status === 'string' ? status.trim().toLowerCase() : '';
++  if (SUCCESSFUL_PROVIDER_STATUSES.has(normalized)) return videoUrl ? 'completed' : 'failed';
++  if (FAILED_PROVIDER_STATUSES.has(normalized)) return 'failed';
++  return videoUrl ? 'completed' : 'submitted';
++}
++
++function normalizeVideoResponse(raw: unknown) {
++  const value = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
++  const data = value.data && typeof value.data === 'object' ? (value.data as Record<string, unknown>) : {};
++  const output = value.output && typeof value.output === 'object' ? (value.output as Record<string, unknown>) : {};
++  const videoUrl = firstString(
++    value.videoUrl ||
++      value.video_url ||
++      value.url ||
++      value.output_url ||
++      value.remixed_from_video_id ||
++      data.videoUrl ||
++      data.video_url ||
++      data.url ||
++      output.videoUrl ||
++      output.video_url ||
++      output.url
++  );
++
++  const providerStatus = value.status || data.status || (videoUrl ? 'completed' : 'submitted');
++  const status = normalizedProviderStatus(providerStatus, videoUrl);
++  const upstreamError = providerError(value, data, output);
++
++  return {
++    ok: true,
++    task_id: String(value.task_id || value.taskId || data.task_id || ''),
++    video_id: String(value.video_id || value.videoId || value.id || data.video_id || data.videoId || data.id || ''),
++    status,
++    progress: Number(value.progress ?? data.progress ?? (videoUrl ? 100 : 0)),
++    videoUrl,
++    error: status === 'failed'
++      ? upstreamError || (SUCCESSFUL_PROVIDER_STATUSES.has(String(providerStatus).trim().toLowerCase())
++        ? 'Video provider completed without a video URL.'
++        : 'Video provider reported a failed terminal status.')
++      : '',
++    raw: value
++  };
++}
++
++export async function POST(request: Request) {
++  try {
++    const { apiKey, baseUrl, model } = videoConfig();
++    if (!apiKey) {
++      return NextResponse.json({ ok: false, error: 'VIDEO_API_KEY is required before submitting video generation.' }, { status: 400 });
++    }
++
++    const body = (await request.json()) as VideoRenderRequest;
++    const prompt = body.prompt?.trim();
++    if (!prompt) {
++      return NextResponse.json({ ok: false, error: 'prompt is required' }, { status: 400 });
++    }
++
++    const size = sizeFromSpec(body.spec);
++    const spec = body.spec || {};
++    const timing = timingFromSpec(spec);
++    const referenceImages = [...stringList(body.keyframes), ...stringList(body.image)];
++    const mode = typeof body.mode === 'string' ? body.mode.trim() : '';
++    const keyframeMode = mode === 'keyframes' || referenceImages.length > 1;
++    const upstreamBody: Record<string, unknown> = {
++      model,
++      prompt,
++      negative_prompt: body.negativePrompt || undefined,
++      width: size.width,
++      height: size.height,
++      num_frames: timing.numFrames,
++      frame_rate: timing.frameRate
++    };
++    if (referenceImages.length === 1 && !keyframeMode) {
++      upstreamBody.image = referenceImages[0];
++      if (mode) upstreamBody.mode = mode;
++    } else if (referenceImages.length > 0 || keyframeMode) {
++      upstreamBody.extra_body = {
++        image: referenceImages,
++        mode: mode || 'keyframes'
++      };
++    }
++
++    const response = await fetch(`${baseUrl}/videos`, {
++      method: 'POST',
++      headers: {
++        'content-type': 'application/json',
++        authorization: `Bearer ${apiKey}`
++      },
++      body: JSON.stringify(upstreamBody)
++    });
++    const text = await response.text();
++    const json = text ? JSON.parse(text) : {};
++
++    if (!response.ok) {
++      const message = typeof json?.error === 'string' ? json.error : JSON.stringify(json || {}).slice(0, 500);
++      return NextResponse.json({ ok: false, error: redact(message || `Video API error ${response.status}`) }, { status: response.status });
++    }
++
++    return NextResponse.json(normalizeVideoResponse(json));
++  } catch (error) {
++    const message = error instanceof Error ? error.message : 'Unknown video render error';
++    return NextResponse.json({ ok: false, error: redact(message) }, { status: 500 });
++  }
++}
++
++export async function GET(request: Request) {
++  try {
++    const { apiKey, baseUrl, model } = videoConfig();
++    if (!apiKey) {
++      return NextResponse.json({ ok: false, error: 'VIDEO_API_KEY is required before checking video generation.' }, { status: 400 });
++    }
++
++    const url = new URL(request.url);
++    const videoId = url.searchParams.get('video_id') || '';
++    if (!videoId) {
++      return NextResponse.json({ ok: false, error: 'video_id is required' }, { status: 400 });
++    }
++
++    const rootUrl = baseUrl.replace(/\/v1$/, '');
++    const statusUrl = `${rootUrl}/agnesapi?video_id=${encodeURIComponent(videoId)}&model_name=${encodeURIComponent(model)}`;
++    const response = await fetch(statusUrl, {
++      method: 'GET',
++      headers: { authorization: `Bearer ${apiKey}` }
++    });
++    const text = await response.text();
++    const json = text ? JSON.parse(text) : {};
++
++    if (!response.ok) {
++      const message = typeof json?.error === 'string' ? json.error : JSON.stringify(json || {}).slice(0, 500);
++      return NextResponse.json({ ok: false, error: redact(message || `Video API error ${response.status}`) }, { status: response.status });
++    }
++
++    return NextResponse.json(normalizeVideoResponse(json));
++  } catch (error) {
++    const message = error instanceof Error ? error.message : 'Unknown video status error';
++    return NextResponse.json({ ok: false, error: redact(message) }, { status: 500 });
++  }
++}
+--- /dev/null	2026-07-11 23:05:22
++++ app/api/video/render/route.test.cjs	2026-07-11 22:42:45
+@@ -0,0 +1,382 @@
++const assert = require('node:assert/strict');
++const fs = require('node:fs');
++const path = require('node:path');
++const test = require('node:test');
++const vm = require('node:vm');
++const ts = require('typescript');
++
++function loadRoute() {
++  const routePath = path.join(__dirname, 'route.ts');
++  const source = fs.readFileSync(routePath, 'utf8');
++  const compiled = ts.transpileModule(source, {
++    compilerOptions: {
++      esModuleInterop: true,
++      module: ts.ModuleKind.CommonJS,
++      target: ts.ScriptTarget.ES2022
++    }
++  }).outputText;
++  const module = { exports: {} };
++  const context = {
++    URL,
++    Request,
++    Response,
++    console,
++    exports: module.exports,
++    module,
++    process,
++    require,
++    fetch: (...args) => global.__videoRouteFetch(...args)
++  };
++  vm.runInNewContext(compiled, context, { filename: routePath });
++  return module.exports;
++}
++
++async function withEnv(patch, fn) {
++  const keys = Object.keys(patch);
++  const previous = new Map(keys.map((key) => [key, process.env[key]]));
++  for (const [key, value] of Object.entries(patch)) {
++    if (value === undefined) delete process.env[key];
++    else process.env[key] = value;
++  }
++  try {
++    await fn();
++  } finally {
++    for (const [key, value] of previous) {
++      if (value === undefined) delete process.env[key];
++      else process.env[key] = value;
++    }
++  }
++}
++
++test('POST submits a video task to the configured Agnes video endpoint', async () => {
++  const { POST } = loadRoute();
++  let upstreamRequest;
++  global.__videoRouteFetch = async (url, init) => {
++    upstreamRequest = {
++      url: String(url),
++      authorization: init.headers.authorization,
++      body: JSON.parse(init.body)
++    };
++    return new Response(JSON.stringify({ task_id: 'task_1', video_id: 'video_1', status: 'queued', progress: 0 }), {
++      status: 200,
++      headers: { 'content-type': 'application/json' }
++    });
++  };
++
++  await withEnv(
++    {
++      VIDEO_API_KEY: 'video-key',
++      VIDEO_BASE_URL: 'https://apihub.agnes-ai.com/v1',
++      VIDEO_MODEL: 'agnes-video-v2.0'
++    },
++    async () => {
++      const response = await POST(
++        new Request('http://localhost/api/video/render', {
++          method: 'POST',
++          headers: { 'content-type': 'application/json' },
++          body: JSON.stringify({
++            prompt: '小彭抬头看到她，镜头缓慢推进',
++            negativePrompt: '不要畸形手指',
++            spec: { aspectRatio: '9:16', resolutionTier: '720p', numFrames: 121, frameRate: 24 }
++          })
++        })
++      );
++      const body = await response.json();
++
++      assert.equal(response.status, 200);
++      assert.equal(body.video_id, 'video_1');
++    }
++  );
++
++  assert.equal(upstreamRequest.url, 'https://apihub.agnes-ai.com/v1/videos');
++  assert.equal(upstreamRequest.authorization, 'Bearer video-key');
++  assert.equal(upstreamRequest.body.model, 'agnes-video-v2.0');
++  assert.equal(upstreamRequest.body.prompt, '小彭抬头看到她，镜头缓慢推进');
++  assert.equal(upstreamRequest.body.negative_prompt, '不要畸形手指');
++  assert.equal(upstreamRequest.body.width, 720);
++  assert.equal(upstreamRequest.body.height, 1280);
++  assert.equal(upstreamRequest.body.num_frames, 121);
++  assert.equal(upstreamRequest.body.frame_rate, 24);
++});
++
++test('POST passes Agnes image-to-video and keyframe controls to the upstream request', async () => {
++  const { POST } = loadRoute();
++  const upstreamBodies = [];
++  global.__videoRouteFetch = async (url, init) => {
++    upstreamBodies.push(JSON.parse(init.body));
++    return new Response(JSON.stringify({ task_id: 'task_ref', video_id: 'video_ref', status: 'queued', progress: 0 }), {
++      status: 200,
++      headers: { 'content-type': 'application/json' }
++    });
++  };
++
++  await withEnv(
++    {
++      VIDEO_API_KEY: 'video-key',
++      VIDEO_BASE_URL: 'https://apihub.agnes-ai.com/v1',
++      VIDEO_MODEL: 'agnes-video-v2.0'
++    },
++    async () => {
++      const imageResponse = await POST(
++        new Request('http://localhost/api/video/render', {
++          method: 'POST',
++          headers: { 'content-type': 'application/json' },
++          body: JSON.stringify({
++            prompt: '让参考图里的小澎自然转头，保持脸型和服装一致',
++            image: 'https://cdn.example/xiaopeng-primary.png',
++            mode: 'ti2vid',
++            spec: { aspectRatio: '9:16', resolutionTier: '720p', numFrames: 121, frameRate: 24 }
++          })
++        })
++      );
++      assert.equal(imageResponse.status, 200);
++
++      const keyframeResponse = await POST(
++        new Request('http://localhost/api/video/render', {
++          method: 'POST',
++          headers: { 'content-type': 'application/json' },
++          body: JSON.stringify({
++            prompt: '在两张参考图之间做自然转场，保持小澎身份一致',
++            keyframes: ['https://cdn.example/xiaopeng-highschool-1.png', 'https://cdn.example/xiaopeng-highschool-2.png'],
++            mode: 'keyframes',
++            spec: { aspectRatio: '9:16', resolutionTier: '720p', numFrames: 121, frameRate: 24 }
++          })
++        })
++      );
++      assert.equal(keyframeResponse.status, 200);
++    }
++  );
++
++  assert.equal(upstreamBodies[0].image, 'https://cdn.example/xiaopeng-primary.png');
++  assert.equal(upstreamBodies[0].mode, 'ti2vid');
++  assert.equal(upstreamBodies[0].extra_body, undefined);
++  assert.deepEqual(upstreamBodies[1].extra_body, {
++    image: ['https://cdn.example/xiaopeng-highschool-1.png', 'https://cdn.example/xiaopeng-highschool-2.png'],
++    mode: 'keyframes'
++  });
++  assert.equal(upstreamBodies[1].image, undefined);
++});
++
++test('POST normalizes long target durations to Agnes frame limits', async () => {
++  const { POST } = loadRoute();
++  let upstreamRequest;
++  global.__videoRouteFetch = async (url, init) => {
++    upstreamRequest = {
++      url: String(url),
++      body: JSON.parse(init.body)
++    };
++    return new Response(JSON.stringify({ task_id: 'task_long', video_id: 'video_long', status: 'queued', progress: 0 }), {
++      status: 200,
++      headers: { 'content-type': 'application/json' }
++    });
++  };
++
++  await withEnv(
++    {
++      VIDEO_API_KEY: 'video-key',
++      VIDEO_BASE_URL: 'https://apihub.agnes-ai.com/v1',
++      VIDEO_MODEL: 'agnes-video-v2.0'
++    },
++    async () => {
++      const response = await POST(
++        new Request('http://localhost/api/video/render', {
++          method: 'POST',
++          headers: { 'content-type': 'application/json' },
++          body: JSON.stringify({
++            prompt: '生成 30 秒中文短视频',
++            spec: { targetDurationSeconds: 30, numFrames: 720, frameRate: 24 }
++          })
++        })
++      );
++
++      assert.equal(response.status, 200);
++    }
++  );
++
++  assert.equal(upstreamRequest.url, 'https://apihub.agnes-ai.com/v1/videos');
++  assert.equal(upstreamRequest.body.num_frames, 409);
++  assert.equal(upstreamRequest.body.frame_rate, 13.6);
++});
++
++test('POST keeps the first-version 720p segment at 15 seconds and 24fps', async () => {
++  const { POST } = loadRoute();
++  let upstreamRequest;
++  global.__videoRouteFetch = async (url, init) => {
++    upstreamRequest = {
++      url: String(url),
++      body: JSON.parse(init.body)
++    };
++    return new Response(JSON.stringify({ task_id: 'task_segment', video_id: 'video_segment', status: 'queued', progress: 0 }), {
++      status: 200,
++      headers: { 'content-type': 'application/json' }
++    });
++  };
++
++  await withEnv(
++    {
++      VIDEO_API_KEY: 'video-key',
++      VIDEO_BASE_URL: 'https://apihub.agnes-ai.com/v1',
++      VIDEO_MODEL: 'agnes-video-v2.0'
++    },
++    async () => {
++      const response = await POST(
++        new Request('http://localhost/api/video/render', {
++          method: 'POST',
++          headers: { 'content-type': 'application/json' },
++          body: JSON.stringify({
++            prompt: '生成当前 15 秒小节',
++            spec: { aspectRatio: '9:16', resolutionTier: '720p', targetDurationSeconds: 15, numFrames: 361, frameRate: 24 }
++          })
++        })
++      );
++
++      assert.equal(response.status, 200);
++    }
++  );
++
++  assert.equal(upstreamRequest.body.width, 720);
++  assert.equal(upstreamRequest.body.height, 1280);
++  assert.equal(upstreamRequest.body.num_frames, 361);
++  assert.equal(upstreamRequest.body.frame_rate, 24);
++});
++
++test('POST caps 1080p segments to the provider frame limit before calling upstream', async () => {
++  const { POST } = loadRoute();
++  let upstreamRequest;
++  global.__videoRouteFetch = async (url, init) => {
++    upstreamRequest = {
++      url: String(url),
++      body: JSON.parse(init.body)
++    };
++    return new Response(JSON.stringify({ task_id: 'task_1080', video_id: 'video_1080', status: 'queued', progress: 0 }), {
++      status: 200,
++      headers: { 'content-type': 'application/json' }
++    });
++  };
++
++  await withEnv(
++    {
++      VIDEO_API_KEY: 'video-key',
++      VIDEO_BASE_URL: 'https://apihub.agnes-ai.com/v1',
++      VIDEO_MODEL: 'agnes-video-v2.0'
++    },
++    async () => {
++      const response = await POST(
++        new Request('http://localhost/api/video/render', {
++          method: 'POST',
++          headers: { 'content-type': 'application/json' },
++          body: JSON.stringify({
++            prompt: '生成 15 秒 1080p 小节',
++            spec: { aspectRatio: '9:16', resolutionTier: '1080p', targetDurationSeconds: 15, numFrames: 361, frameRate: 24 }
++          })
++        })
++      );
++
++      assert.equal(response.status, 200);
++    }
++  );
++
++  assert.equal(upstreamRequest.body.width, 1080);
++  assert.equal(upstreamRequest.body.height, 1920);
++  assert.equal(upstreamRequest.body.num_frames, 169);
++  assert.equal(upstreamRequest.body.frame_rate, 11.3);
++});
++
++test('GET retrieves video result by video_id without leaking API keys', async () => {
++  const { GET } = loadRoute();
++  let upstreamRequest;
++  global.__videoRouteFetch = async (url, init) => {
++    upstreamRequest = {
++      url: String(url),
++      authorization: init.headers.authorization
++    };
++    return new Response(JSON.stringify({ id: 'video_1', status: 'completed', progress: 100, remixed_from_video_id: 'https://cdn.example/video.mp4' }), {
++      status: 200,
++      headers: { 'content-type': 'application/json' }
++    });
++  };
++
++  await withEnv(
++    {
++      VIDEO_API_KEY: 'video-key',
++      VIDEO_BASE_URL: 'https://apihub.agnes-ai.com/v1',
++      VIDEO_MODEL: 'agnes-video-v2.0'
++    },
++    async () => {
++      const response = await GET(new Request('http://localhost/api/video/render?video_id=video_1'));
++      const body = await response.json();
++
++      assert.equal(response.status, 200);
++      assert.equal(body.video_id, 'video_1');
++      assert.equal(body.videoUrl, 'https://cdn.example/video.mp4');
++      assert.equal(JSON.stringify(body).includes('video-key'), false);
++    }
++  );
++
++  assert.equal(upstreamRequest.url, 'https://apihub.agnes-ai.com/agnesapi?video_id=video_1&model_name=agnes-video-v2.0');
++  assert.equal(upstreamRequest.authorization, 'Bearer video-key');
++});
++
++test('GET normalizes provider terminal aliases and fails completed responses without a video URL', async () => {
++  const { GET } = loadRoute();
++  const successAliases = ['completed', 'succeeded', 'success', 'done'];
++  const failureAliases = ['failed', 'failure', 'error', 'rejected', 'cancelled', 'canceled', 'aborted'];
++  let payload = {};
++  global.__videoRouteFetch = async () => new Response(JSON.stringify(payload), {
++    status: 200,
++    headers: { 'content-type': 'application/json' }
++  });
++
++  await withEnv(
++    {
++      VIDEO_API_KEY: 'video-key',
++      VIDEO_BASE_URL: 'https://apihub.agnes-ai.com/v1',
++      VIDEO_MODEL: 'agnes-video-v2.0'
++    },
++    async () => {
++      for (const status of successAliases) {
++        payload = { id: `video-${status}`, status, video_url: `https://cdn.example/${status}.mp4` };
++        const response = await GET(new Request('http://localhost/api/video/render?video_id=test'));
++        const body = await response.json();
++        assert.equal(body.status, 'completed');
++        assert.equal(body.videoUrl, payload.video_url);
++
++        payload = { id: `video-${status}`, status };
++        const missingUrlResponse = await GET(new Request('http://localhost/api/video/render?video_id=test'));
++        const missingUrlBody = await missingUrlResponse.json();
++        assert.equal(missingUrlBody.status, 'failed');
++        assert.match(missingUrlBody.error, /video URL/i);
++      }
++
++      for (const status of failureAliases) {
++        payload = { id: `video-${status}`, status, error: 'provider failed' };
++        const response = await GET(new Request('http://localhost/api/video/render?video_id=test'));
++        const body = await response.json();
++        assert.equal(body.status, 'failed');
++      }
++    }
++  );
++});
++
++test('POST returns a clear configuration error when video API key is missing', async () => {
++  const { POST } = loadRoute();
++  await withEnv(
++    {
++      VIDEO_API_KEY: undefined,
++      CUSTOM_API_KEY: undefined
++    },
++    async () => {
++      const response = await POST(
++        new Request('http://localhost/api/video/render', {
++          method: 'POST',
++          headers: { 'content-type': 'application/json' },
++          body: JSON.stringify({ prompt: '测试视频' })
++        })
++      );
++      const body = await response.json();
++
++      assert.equal(response.status, 400);
++      assert.match(body.error, /VIDEO_API_KEY/);
++    }
++  );
++});

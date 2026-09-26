@@ -1,0 +1,23 @@
+{
+  "status": 200,
+  "body": {
+    "ok": true,
+    "task_id": "task_LuUp8YvelGDfaJtwgI2sziT3qpjTkJ4U",
+    "video_id": "video_bGl0ZWxsbTpjdXN0b21fbGxtX3Byb3ZpZGVyOm9wZW5haTttb2RlbF9pZDphZ25lcy12aWRlby12Mi4wO3ZpZGVvX2lkOnZpZGVvX2Q4MmQ0NjIzNjRmYTcwM2I1MTg2ZjMxMThiOWViZDRmZTc3YWU5ZDk2N2JmZmYzOA==",
+    "status": "queued",
+    "progress": 0,
+    "videoUrl": "",
+    "raw": {
+      "id": "task_LuUp8YvelGDfaJtwgI2sziT3qpjTkJ4U",
+      "video_id": "video_bGl0ZWxsbTpjdXN0b21fbGxtX3Byb3ZpZGVyOm9wZW5haTttb2RlbF9pZDphZ25lcy12aWRlby12Mi4wO3ZpZGVvX2lkOnZpZGVvX2Q4MmQ0NjIzNjRmYTcwM2I1MTg2ZjMxMThiOWViZDRmZTc3YWU5ZDk2N2JmZmYzOA==",
+      "task_id": "task_LuUp8YvelGDfaJtwgI2sziT3qpjTkJ4U",
+      "object": "video",
+      "model": "agnes-video-v2.0",
+      "status": "queued",
+      "progress": 0,
+      "created_at": 1782793038,
+      "seconds": "7.0",
+      "size": "1088x1920"
+    }
+  }
+}

@@ -1,0 +1,109 @@
+name: "🎬 贡献实测视频"
+description: "为 Cross-Model Matrix 中某条 prompt 贡献实测视频效果"
+title: "[实测视频] <场景名> · <模型名>"
+labels: ["contribution", "test-video"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## 感谢贡献实测视频！
+
+        你的贡献将帮助 [Cross-Model Matrix](https://github.com/cclank/lanshu-awesome-ai-video-kit/blob/main/prompts/data/cross-model-matrix.json) 从「公式对照」升级为「真实效果对照」，直接驱动未来 [`prompt-translator`](https://github.com/cclank/lanshu-awesome-ai-video-kit/tree/main/skills/prompt-translator) skill 的智能化。
+
+  - type: dropdown
+    id: scenario
+    attributes:
+      label: "场景"
+      description: "你为哪个场景跑了实测?"
+      options:
+        - "scene-1-perfume · 奢华香水旋转广告"
+        - "scene-2-reunion · 金色时刻情侣重逢"
+        - "scene-3-kickflip · 滑板 Kickflip 慢动作"
+        - "scene-4-i2v-cafe · 图生视频咖啡馆肖像"
+        - "scene-5-meeting · 办公室会议三人讨论"
+        - "scene-6-horror-balloon · 走廊深处的红气球"
+        - "scene-7-mountain-sunrise · 山顶日出延时"
+        - "scene-8-liquid-metal · 液态金属变形循环"
+        - "scene-9-wuxia-duel · 竹林雨夜剑客决斗"
+        - "scene-10-surfing-dog · 戴墨镜冲浪的金毛"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: model
+    attributes:
+      label: "模型"
+      options:
+        - "seedance-2.0 (Doubao Seedance 2.0)"
+        - "happyhorse-1.0"
+        - "kling-3.0 (可灵)"
+        - "sora-2 (OpenAI Sora 2)"
+        - "veo-3 (Google Veo 3.1)"
+        - "runway-gen4 (Runway Gen-4.5 / Aleph)"
+        - "pika-2.5 (Pika Labs)"
+        - "hailuo-02 (MiniMax 海螺)"
+        - "hunyuan-video (腾讯 Hunyuan 1.5)"
+        - "wan-2.5 (通义万相 Wan 2.7)"
+        - "jimeng-3 (即梦 AI)"
+    validations:
+      required: true
+
+  - type: input
+    id: video_url
+    attributes:
+      label: "视频 URL"
+      description: "必须公开可访问。支持 YouTube / B 站 / Vimeo / 七牛 / 阿里 OSS / Cloudflare Stream 等。"
+      placeholder: "https://youtube.com/watch?v=..."
+    validations:
+      required: true
+
+  - type: dropdown
+    id: rating
+    attributes:
+      label: "主观评分 (1-5)"
+      description: |
+        - 5 完美,产出可直接交付
+        - 4 很好,90% 符合预期,小调即可
+        - 3 基本可用,需中度调整
+        - 2 部分有问题,需要重写关键段
+        - 1 几乎不可用
+      options:
+        - "5 ★★★★★ 完美"
+        - "4 ★★★★☆ 很好"
+        - "3 ★★★☆☆ 基本可用"
+        - "2 ★★☆☆☆ 部分有问题"
+        - "1 ★☆☆☆☆ 几乎不可用"
+    validations:
+      required: true
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: "效果描述 (20-50 字)"
+      placeholder: "例如:整体效果不错,人脸偶尔轻微漂移。如果用 master 模式更稳定。"
+    validations:
+      required: true
+
+  - type: textarea
+    id: prompt_used
+    attributes:
+      label: "实际使用的 prompt(可选,如果你修改了基准版本)"
+      description: "如果你直接用了基准 prompt,这里留空即可。如果你做了调整,贴出最终版本。"
+      render: text
+
+  - type: input
+    id: github_handle
+    attributes:
+      label: "你的 GitHub handle(可选)"
+      description: "用于记入 tested_by 字段。留空则记为 anonymous。"
+      placeholder: "@your-handle"
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: "确认"
+      options:
+        - label: "视频是我本人或经授权跑出的"
+          required: true
+        - label: "视频公开可访问且不会很快下线"
+          required: true

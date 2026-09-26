@@ -1,0 +1,128 @@
+# 11 模型版本监控端点
+# 每周 GitHub Action 抓取这些 URL,对比内容 hash,变化时自动提 issue 提醒维护者人工 review
+
+models:
+  seedance-2.0:
+    vendor: 字节 火山方舟
+    current_version: "2.0"
+    endpoints:
+      - https://www.volcengine.com/product/ark
+      - https://www.volcengine.com/
+
+  happyhorse-1.0:
+    vendor: 阿里巴巴
+    current_version: "1.0"
+    endpoints:
+      - https://tryhappyhorseai.com/
+
+  kling-3.0:
+    vendor: 快手 · 可灵
+    current_version: "3.0"
+    endpoints:
+      - https://klingai.com/
+      - https://klingai.com/document-api
+
+  sora-2:
+    vendor: OpenAI
+    current_version: "2"
+    current_status: "⚠️ Possibly EOL by 2026 Q3 — monitor migration paths"
+    endpoints:
+      - https://openai.com/sora/
+      - https://developers.openai.com/cookbook/examples/sora/sora2_prompting_guide
+
+  veo-3:
+    vendor: Google DeepMind
+    current_version: "3.1"
+    endpoints:
+      - https://deepmind.google/models/veo/
+      - https://deepmind.google/models/veo/prompt-guide/
+
+  runway-gen4:
+    vendor: Runway
+    current_version: "Gen-4.5 / Aleph"
+    endpoints:
+      - https://runwayml.com/
+      - https://help.runwayml.com/hc/en-us/articles/39789879462419-Gen-4-Video-Prompting-Guide
+      - https://help.runwayml.com/hc/en-us/articles/43277392678803-Aleph-Prompting-Guide
+
+  pika-2.5:
+    vendor: Pika Labs
+    current_version: "2.5"
+    endpoints:
+      - https://pikaslabs.com/
+      - https://pikaslabs.com/pika-2.5/
+
+  hailuo-02:
+    vendor: MiniMax
+    current_version: "02"
+    endpoints:
+      - https://platform.minimax.io/docs/guides/video-generation
+      - https://www.minimax.io/
+
+  hunyuan-video:
+    vendor: 腾讯
+    current_version: "1.5"
+    endpoints:
+      - https://github.com/Tencent-Hunyuan/HunyuanVideo/releases.atom
+      - https://github.com/Tencent-Hunyuan/HunyuanVideo-1.5/releases.atom
+
+  wan-2.5:
+    vendor: 阿里通义
+    current_version: "2.7"
+    note: "JSON 模型 id 仍为 wan-2.5 是历史原因;最新版本是 2.7"
+    endpoints:
+      - https://www.alibabacloud.com/help/en/model-studio/use-video-generation
+      - https://www.alibabacloud.com/help/en/model-studio/text-to-video-prompt
+
+  jimeng-3:
+    vendor: 字节 剪映
+    current_version: "3.0"
+    endpoints:
+      - https://jimeng.jianying.com/
+      - https://jimeng.aigc.cn/
+      - https://www.volcengine.com/product/jimeng
+
+  ltx-video:
+    vendor: Lightricks (开源)
+    current_version: "0.9.7"
+    endpoints:
+      - https://github.com/Lightricks/LTX-Video/releases.atom
+      - https://huggingface.co/Lightricks/LTX-Video
+
+  mochi-1:
+    vendor: Genmo (开源)
+    current_version: "1.0"
+    endpoints:
+      - https://github.com/genmoai/mochi/releases.atom
+      - https://www.genmo.ai/
+
+  cogvideox-5b:
+    vendor: 智谱 · 清华 (开源)
+    current_version: "5B / 1.5"
+    endpoints:
+      - https://github.com/zai-org/CogVideo/releases.atom
+      - https://huggingface.co/zai-org/CogVideoX-5b
+
+  higgsfield-soul:
+    vendor: Higgsfield AI
+    current_version: "Soul 2.0 / DoP"
+    endpoints:
+      - https://higgsfield.ai/
+      - https://higgsfield.ai/skills
+      - https://higgsfield.ai/soul-intro
+
+# 监控配置
+config:
+  schedule: "0 1 * * 1"  # 每周一 09:00 北京时间 (01:00 UTC)
+  user_agent: "lanshu-awesome-ai-video-kit version-monitor (https://github.com/cclank/lanshu-awesome-ai-video-kit)"
+  timeout_seconds: 20
+  retry_attempts: 3
+  # 内容过滤(去除噪音的正则)
+  noise_patterns:
+    - 'timestamp=\d+'
+    - 'csrf-token=[a-f0-9]+'
+    - 'session_id=[A-Z0-9-]+'
+    - 'data-id="[0-9a-f]+"'
+    - 'nonce="[A-Za-z0-9+/=]+"'
+    - '<!--.*?-->'
+    - 'Updated: \d{4}-\d{2}-\d{2}'

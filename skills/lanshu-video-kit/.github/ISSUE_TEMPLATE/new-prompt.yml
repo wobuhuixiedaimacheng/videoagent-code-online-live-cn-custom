@@ -1,0 +1,83 @@
+name: "💡 贡献新提示词"
+description: "为某个模型加一条实测好用的 prompt"
+title: "[新 prompt] <模型> · <场景标题>"
+labels: ["contribution", "new-prompt"]
+body:
+  - type: dropdown
+    id: model
+    attributes:
+      label: "目标模型"
+      options:
+        - "seedance-2.0"
+        - "happyhorse-1.0"
+        - "kling-3.0"
+        - "sora-2"
+        - "veo-3"
+        - "runway-gen4"
+        - "pika-2.5"
+        - "hailuo-02"
+        - "hunyuan-video"
+        - "wan-2.5"
+        - "jimeng-3"
+    validations:
+      required: true
+
+  - type: input
+    id: title
+    attributes:
+      label: "标题(简短中文)"
+      placeholder: "例如:深夜便利店女主"
+    validations:
+      required: true
+
+  - type: textarea
+    id: prompt
+    attributes:
+      label: "Prompt 完整内容"
+      render: text
+    validations:
+      required: true
+
+  - type: input
+    id: tags
+    attributes:
+      label: "标签(逗号分隔,至少 3 个)"
+      placeholder: "noir, neon, rain, tracking"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: "场景分类"
+      description: "见 prompts/README.md 现有分类。不够用就留空,我们会新建。"
+      options:
+        - "product-commercial / 产品广告"
+        - "cinematic / 电影叙事"
+        - "action / 动作格斗"
+        - "portrait / 人物肖像"
+        - "nature / 自然风景"
+        - "dialogue-driven / 对话驱动"
+        - "image-to-video / 图生视频"
+        - "horror / 恐怖悬疑"
+        - "comedy / 喜剧"
+        - "其他(留言说明)"
+
+  - type: input
+    id: params
+    attributes:
+      label: "推荐参数"
+      placeholder: "16:9 / 8s / 1080p"
+
+  - type: input
+    id: source
+    attributes:
+      label: "来源"
+      description: "如果是博客/官方文档,贴链接。自测请填 Self-Tested。"
+      placeholder: "Self-Tested / https://..."
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: "使用建议(可选)"
+      placeholder: "例如:把 [product] 替换成耳机/香水/球鞋等都通用"

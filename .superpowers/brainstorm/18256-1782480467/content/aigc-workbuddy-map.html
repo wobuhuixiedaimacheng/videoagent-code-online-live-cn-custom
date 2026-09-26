@@ -1,0 +1,182 @@
+<style>
+  .wb-board { color: #171717; }
+  .wb-grid { display: grid; grid-template-columns: 1fr 1.35fr; gap: 20px; align-items: start; }
+  .wb-panel { border: 1px solid #e8e8e8; border-radius: 18px; background: #fff; box-shadow: 0 18px 45px rgba(0,0,0,.055); overflow: hidden; }
+  .wb-panel h3 { margin: 0; padding: 18px 20px 8px; font-size: 22px; }
+  .wb-panel p { margin: 0; color: #737373; line-height: 1.6; }
+  .map-row { display: grid; grid-template-columns: 150px 1fr; gap: 12px; padding: 14px 18px; border-top: 1px solid #f0f0f0; }
+  .map-row strong { display: block; font-size: 15px; }
+  .map-row span { display: block; color: #737373; font-size: 13px; margin-top: 3px; }
+  .keep { color: #109c74; font-weight: 800; }
+  .replace { color: #d97706; font-weight: 800; }
+  .mock-app { min-height: 680px; display: grid; grid-template-columns: 250px 1fr; background: #f7f7f6; }
+  .mock-side { padding: 18px 14px; background: #f0f0ef; border-right: 1px solid #e2e2e0; }
+  .traffic { display: flex; gap: 8px; margin: 0 0 26px 3px; }
+  .traffic i { width: 12px; height: 12px; display: block; border-radius: 50%; }
+  .traffic i:nth-child(1) { background: #ff5d57; }
+  .traffic i:nth-child(2) { background: #ffbd2e; }
+  .traffic i:nth-child(3) { background: #28c840; }
+  .brand-mini { color: #9a9a98; font-weight: 850; font-size: 14px; margin-bottom: 18px; }
+  .nav-item { height: 42px; border-radius: 12px; display: flex; align-items: center; gap: 10px; padding: 0 12px; color: #333; font-weight: 750; margin-bottom: 7px; }
+  .nav-item.active { background: #dfdfdd; }
+  .nav-item small { margin-left: auto; color: #aaa; font-weight: 650; }
+  .space-title { color: #aaa; margin: 28px 10px 10px; font-weight: 800; }
+  .mock-main { padding: 26px 30px; background: #fff; }
+  .topline { display: flex; justify-content: space-between; align-items: center; margin-bottom: 22px; }
+  .connected { color: #777; font-size: 14px; }
+  .connected b { color: #00ad72; }
+  .main-title { font-size: 34px; font-weight: 900; letter-spacing: 0; margin: 8px 0 8px; }
+  .subtitle-line { color: #6f6f6f; margin-bottom: 20px; }
+  .mode-tabs { display: inline-flex; background: #ededeb; border-radius: 14px; padding: 4px; gap: 4px; margin-bottom: 18px; }
+  .mode-tabs span { padding: 9px 16px; border-radius: 11px; font-weight: 800; color: #555; }
+  .mode-tabs span.active { background: #202020; color: white; }
+  .hero-composer { border: 1px solid #e8e8e6; border-radius: 20px; padding: 16px; box-shadow: 0 18px 45px rgba(0,0,0,.06); margin-bottom: 22px; }
+  .prompt { height: 72px; color: #aaa; font-size: 16px; }
+  .composer-tools { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .tool-pill { border: 1px solid #e3e3e0; border-radius: 99px; padding: 8px 12px; font-size: 13px; font-weight: 750; background: #fafafa; }
+  .send-dot { margin-left: auto; width: 40px; height: 40px; border-radius: 50%; background: #9f9f9d; display: grid; place-items: center; color: #fff; font-weight: 900; }
+  .section-head { display: flex; justify-content: space-between; align-items: end; margin: 20px 0 12px; }
+  .section-head h4 { margin: 0; font-size: 22px; }
+  .section-head span { color: #888; font-size: 13px; }
+  .agent-grid { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 12px; }
+  .agent-card { border: 1px solid #eeeeec; background: #fbfbfa; border-radius: 16px; padding: 14px; min-height: 118px; }
+  .agent-card b { display: block; font-size: 15px; margin-bottom: 8px; }
+  .agent-card p { font-size: 12px; color: #777; line-height: 1.45; }
+  .agent-card.active { border-color: #1cbf8b; background: #f2fffa; }
+  .scene-flow { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-top: 12px; }
+  .scene-step { border: 1px solid #ececea; border-radius: 14px; padding: 12px 10px; background: #fff; }
+  .scene-step b { display: block; font-size: 13px; }
+  .scene-step span { display: block; color: #888; font-size: 11px; margin-top: 4px; }
+  .choices { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 20px; }
+  .choice-card { border: 1px solid #e8e8e8; border-radius: 16px; padding: 16px; cursor: pointer; background: #fff; }
+  .choice-card h3 { margin: 0 0 8px; font-size: 18px; }
+  .choice-card p { margin: 0; color: #777; line-height: 1.5; font-size: 13px; }
+  .choice-card.reco { border-color: #1cbf8b; box-shadow: 0 12px 34px rgba(28,191,139,.13); }
+  .badge { display: inline-flex; padding: 4px 8px; border-radius: 99px; background: #eafff7; color: #0a8e65; font-size: 12px; font-weight: 900; margin-bottom: 10px; }
+  @media (max-width: 1100px) {
+    .wb-grid { grid-template-columns: 1fr; }
+    .mock-app { grid-template-columns: 210px 1fr; }
+    .agent-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+    .choices { grid-template-columns: 1fr; }
+  }
+</style>
+
+<div class="wb-board">
+  <h2>WorkBuddy 结构，改造成 AIGC 内容生产工作台</h2>
+  <p class="subtitle">结论：借它的“任务入口 / 专家市场 / 项目空间 / 自动化 / 连接器”心智，但业务内核全部换成 AIGC 内容资产生产，不做泛办公。</p>
+
+  <div class="wb-grid">
+    <div class="wb-panel">
+      <h3>WorkBuddy 模块怎么迁移</h3>
+      <div class="map-row">
+        <div><strong>新建任务</strong><span class="keep">保留</span></div>
+        <p>变成 AIGC 命令入口：生成视频、拆场景、改爆款、批量产图、生成一周内容。</p>
+      </div>
+      <div class="map-row">
+        <div><strong>助理</strong><span class="replace">替换</span></div>
+        <p>不叫通用助理，改成 Orchestrator：负责拆任务、调用子 Agent、写入项目文件。</p>
+      </div>
+      <div class="map-row">
+        <div><strong>项目</strong><span class="keep">保留</span></div>
+        <p>一个项目就是一个品牌 / 活动 / 产品线，内部包含 Brief、脚本、分镜、素材、发布计划。</p>
+      </div>
+      <div class="map-row">
+        <div><strong>专家</strong><span class="replace">垂直化</span></div>
+        <p>从泛职业专家，变成 AIGC 专家团：脚本、镜头、视觉提示词、平台运营、合规审查。</p>
+      </div>
+      <div class="map-row">
+        <div><strong>自动化</strong><span class="replace">内容化</span></div>
+        <p>从提醒/日报，变成每日选题、热点追踪、竞品拆解、素材生成、定时发布准备。</p>
+      </div>
+      <div class="map-row">
+        <div><strong>更多/资料库</strong><span class="keep">保留</span></div>
+        <p>变成品牌知识库、历史爆款库、产品素材库、平台规则库、灵感库。</p>
+      </div>
+    </div>
+
+    <div class="wb-panel">
+      <div class="mock-app">
+        <aside class="mock-side">
+          <div class="traffic"><i></i><i></i><i></i></div>
+          <div class="brand-mini">AIGC Buddy v0.1</div>
+          <div class="nav-item active">＋ 新建内容</div>
+          <div class="nav-item">◎ Orchestrator</div>
+          <div class="nav-item">◌ 项目 <small>品牌/活动</small></div>
+          <div class="nav-item">◈ Agent 专家 <small>技能/连接器</small></div>
+          <div class="nav-item">↻ 自动化</div>
+          <div class="nav-item">⌘ 资料库 <small>素材/灵感</small></div>
+          <div class="space-title">空间 (1)</div>
+          <div class="nav-item">◌ 出海旅游内容中台</div>
+        </aside>
+
+        <main class="mock-main">
+          <div class="topline">
+            <div class="connected">已连接：<b>小红书</b> · TikTok · Shopify · 素材库</div>
+            <div class="tool-pill">模型：Claude / OpenAI / Custom</div>
+          </div>
+          <div class="main-title">AIGC 内容生产 Agent</div>
+          <div class="subtitle-line">从一个产品卖点开始，自动拆成脚本、场景、素材提示词、发布文案和合规检查。</div>
+          <div class="mode-tabs">
+            <span class="active">短视频</span><span>图文笔记</span><span>广告素材</span><span>直播切片</span>
+          </div>
+
+          <div class="hero-composer">
+            <div class="prompt">今天要做什么？例如：给“巴厘岛亲子游”生成 5 条小红书短视频，并拆每条的场景和素材提示词</div>
+            <div class="composer-tools">
+              <span class="tool-pill">Craft</span>
+              <span class="tool-pill">自动拆场景</span>
+              <span class="tool-pill">调用 Agent 团</span>
+              <span class="tool-pill">连接资料库</span>
+              <span class="tool-pill">默认需批准</span>
+              <span class="send-dot">▲</span>
+            </div>
+          </div>
+
+          <div class="section-head">
+            <h4>本次任务会调用哪些子 Agent</h4>
+            <span>这才是你的 CC 感：每一步可见、可审、可回滚</span>
+          </div>
+          <div class="agent-grid">
+            <div class="agent-card active"><b>Orchestrator</b><p>理解目标，拆成视频项目和场景任务。</p></div>
+            <div class="agent-card"><b>Brief Agent</b><p>补全受众、平台、卖点、转化目标。</p></div>
+            <div class="agent-card"><b>Scene Splitter</b><p>把每条内容拆成 Hook / Proof / CTA。</p></div>
+            <div class="agent-card"><b>Script Agent</b><p>生成口播、字幕、标题和脚本版本。</p></div>
+            <div class="agent-card"><b>Shot Agent</b><p>输出镜头、画面、动作和节奏。</p></div>
+            <div class="agent-card"><b>Prompt Agent</b><p>生成图片/视频素材提示词和参数。</p></div>
+            <div class="agent-card"><b>Platform Agent</b><p>适配小红书、抖音、TikTok 的表达。</p></div>
+            <div class="agent-card"><b>Compliance Agent</b><p>检查夸大承诺、敏感词和平台风险。</p></div>
+          </div>
+
+          <div class="section-head">
+            <h4>场景级流水线</h4>
+            <span>每个场景独立派发子 Agent</span>
+          </div>
+          <div class="scene-flow">
+            <div class="scene-step"><b>Scene 01</b><span>3 秒 Hook</span></div>
+            <div class="scene-step"><b>Scene 02</b><span>痛点证明</span></div>
+            <div class="scene-step"><b>Scene 03</b><span>产品卖点</span></div>
+            <div class="scene-step"><b>Scene 04</b><span>信任背书</span></div>
+            <div class="scene-step"><b>Scene 05</b><span>CTA 转化</span></div>
+          </div>
+        </main>
+      </div>
+    </div>
+  </div>
+
+  <h3 style="margin-top:24px;">三种产品方向</h3>
+  <div class="choices">
+    <div class="choice-card" data-choice="a" onclick="toggleSelect(this)">
+      <h3>A. WorkBuddy 皮肤版</h3>
+      <p>最快，像截图。但只是换壳，容易变成泛办公工具，AIGC 差异不够强。</p>
+    </div>
+    <div class="choice-card reco" data-choice="b" onclick="toggleSelect(this)">
+      <div class="badge">推荐</div>
+      <h3>B. AIGC Agent 工作台</h3>
+      <p>借 WorkBuddy 信息架构，核心围绕内容项目、场景拆解、子 Agent 编排、素材和发布资产。</p>
+    </div>
+    <div class="choice-card" data-choice="c" onclick="toggleSelect(this)">
+      <h3>C. 纯 CC 终端式</h3>
+      <p>最有 Agent 感，但 C 端和小 B 上手成本高，不利于营销产品转化。</p>
+    </div>
+  </div>
+</div>

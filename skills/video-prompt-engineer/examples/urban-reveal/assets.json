@@ -1,0 +1,36 @@
+{
+  "characters": {
+    "林晚": {
+      "aliases": ["小林"],
+      "reference": "@林晚"
+    },
+    "程峥": {
+      "aliases": [],
+      "reference": "@程峥"
+    },
+    "许薇": {
+      "aliases": [],
+      "reference": "@许薇"
+    },
+    "陈经理": {
+      "aliases": [],
+      "reference": "@陈经理"
+    }
+  },
+  "scenes": {
+    "澜庭酒店宴会厅入口，夜": {
+      "aliases": ["宴会厅门口"],
+      "reference": "@澜庭酒店宴会厅入口"
+    }
+  },
+  "props": {
+    "黑色董事邀请函": {
+      "aliases": ["邀请函"],
+      "reference": "@黑色董事邀请函"
+    },
+    "项目文件": {
+      "aliases": ["文件"],
+      "reference": "@项目文件"
+    }
+  }
+}

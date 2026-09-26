@@ -1,0 +1,75 @@
+name: 15 模型版本监控
+
+on:
+  schedule:
+    # 每周一 北京时间 09:00 (UTC 01:00) — 15 个模型市场迭代快,周一开工自动巡检一遍
+    - cron: '0 1 * * 1'
+  workflow_dispatch:
+    inputs:
+      rebaseline:
+        description: '重新校准 hash baseline(不报变化,只更新 baseline)'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: pip install -r scripts/requirements.txt
+
+      - name: Run monitor (rebaseline mode)
+        if: ${{ inputs.rebaseline == true }}
+        run: |
+          python3 scripts/monitor_models.py --rebaseline
+          echo "## Baseline 已重新校准" >> $GITHUB_STEP_SUMMARY
+
+      - name: Run monitor (regular check)
+        if: ${{ inputs.rebaseline != true }}
+        id: check
+        run: |
+          # 跑监控,把 issue body 写入文件
+          python3 scripts/monitor_models.py --issue-body > /tmp/issue_body.md && echo "has_changes=true" >> $GITHUB_OUTPUT || echo "has_changes=false" >> $GITHUB_OUTPUT
+          echo "## 监控完成" >> $GITHUB_STEP_SUMMARY
+          if [ -s /tmp/issue_body.md ]; then
+            echo "**发现变化,即将创建 issue**" >> $GITHUB_STEP_SUMMARY
+            cat /tmp/issue_body.md >> $GITHUB_STEP_SUMMARY
+          else
+            echo "**所有 11 模型官方页面无显著变化** ✓" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Create issue on change
+        if: ${{ steps.check.outputs.has_changes == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          DATE=$(date +%Y-%m-%d)
+          gh issue create \
+            --title "🚨 [$DATE] 模型官方页面发现变化 — 请人工 review" \
+            --label "model-watch,automated,needs-review" \
+            --body-file /tmp/issue_body.md
+
+      - name: Commit updated baseline
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add scripts/known_hashes.json
+          if git diff --cached --quiet; then
+            echo "No baseline changes to commit"
+          else
+            git commit -m "chore: update model hash baseline [skip ci]"
+            git push
+          fi

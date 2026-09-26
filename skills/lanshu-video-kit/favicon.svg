@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <defs>
+    <linearGradient id="diamondGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#a78bfa"/>
+      <stop offset="60%" stop-color="#d568c1"/>
+      <stop offset="100%" stop-color="#f472b6"/>
+    </linearGradient>
+    <linearGradient id="shineGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="rgba(255,255,255,0.85)"/>
+      <stop offset="100%" stop-color="rgba(255,255,255,0)"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0%" stop-color="#a78bfa" stop-opacity="0.4"/>
+      <stop offset="100%" stop-color="#a78bfa" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- 软发光底 -->
+  <circle cx="16" cy="16" r="15" fill="url(#glow)"/>
+
+  <!-- 钻石主体 -->
+  <path d="M7 12 L16 4 L25 12 L16 28 Z"
+        fill="url(#diamondGrad)"
+        stroke="rgba(255,255,255,0.95)"
+        stroke-width="0.8"
+        stroke-linejoin="round"/>
+
+  <!-- 内部刻面线 -->
+  <path d="M7 12 H25 M11 12 L16 28 M21 12 L16 28 M11 12 L16 4 M21 12 L16 4"
+        stroke="rgba(255,255,255,0.55)"
+        stroke-width="0.6"
+        fill="none"
+        stroke-linejoin="round"/>
+
+  <!-- 高光 -->
+  <path d="M11.5 12 L16 4 L16 14 Z"
+        fill="url(#shineGrad)"
+        opacity="0.55"/>
+</svg>

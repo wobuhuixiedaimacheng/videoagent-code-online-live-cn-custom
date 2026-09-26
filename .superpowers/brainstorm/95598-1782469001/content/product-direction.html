@@ -1,0 +1,70 @@
+<h2>先选产品方向</h2>
+<p class="subtitle">你现在的项目是一个轻量 Next.js MVP。OiiOii 值得借鉴的是“多 Agent 生产管线 + 可视化工作台 + 产物可继续编辑”，Claude Code 值得借鉴的是“工具调用、权限批准、文件级上下文、可回放执行”。但第一步必须选一个能卖的切入口。</p>
+
+<div class="cards">
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">A · 营销视频 Agent 工作台</div>
+        <div class="mockup-body">
+          <div class="mock-nav">Brief → Script → Storyboard → Assets → Render → Compliance</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
+            <div class="placeholder">Agent 计划 / 工具调用</div>
+            <div class="placeholder">视频画布 / 镜头预览</div>
+          </div>
+          <div class="mock-button" style="margin-top:12px">批准生成下一版</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A. 面向营销人的视频 Agent</h3>
+      <p>最贴近你“日后做营销用”的目标。先做脚本、分镜、素材提示词、合规、导出计划，不急着做真正复杂的视频引擎。</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">B · Claude Code 式通用 Agent</div>
+        <div class="mockup-body">
+          <div class="mock-nav">Files · Tools · Memory · MCP · Approval</div>
+          <div style="display:grid;grid-template-columns:0.8fr 1.2fr;gap:12px;margin-top:12px">
+            <div class="placeholder">项目文件树</div>
+            <div class="placeholder">执行日志 + diff</div>
+          </div>
+          <div class="mock-button" style="margin-top:12px">运行命令 / 审批 patch</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B. 通用 Claude-like Agent 工具</h3>
+      <p>技术含量高，但范围会爆炸：文件系统、命令执行、权限、插件、MCP、会话持久化都要补。适合做长期平台，不适合第一版营销验证。</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">C · OiiOii 式 AI 创作平台</div>
+        <div class="mockup-body">
+          <div class="mock-nav">Script Agent · Character Agent · Scene Agent · Video Agent</div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px">
+            <div class="placeholder">角色卡</div>
+            <div class="placeholder">场景卡</div>
+            <div class="placeholder">镜头卡</div>
+          </div>
+          <div class="mock-button" style="margin-top:12px">进入 Canvas 精修</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C. AI 动画/短片创作平台</h3>
+      <p>最像 OiiOii，但对模型、素材、队列、成本和渲染链路要求最高。除非你已有视频生成供应链，否则第一版容易变成漂亮空壳。</p>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>我的倾向</h3>
+  <p>先走 A：营销视频 Agent 工作台。它能吸收 Claude Code 的“执行透明与审批机制”，也能吸收 OiiOii 的“多 Agent 生产流水线”，但不会一上来背负通用 IDE 和完整视频平台的成本。</p>
+</div>

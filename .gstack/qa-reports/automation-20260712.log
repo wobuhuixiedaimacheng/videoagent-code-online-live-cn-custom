@@ -1,0 +1,121 @@
+VideoAgent automation log
+Run completed: 2026-07-12T12:26:21+0800
+Workspace: /Users/carroll/Desktop/videoagent-code-online-live-cn-custom
+
+Package script inventory
+------------------------
+dev: next dev
+build: next build
+start: next start
+typecheck: tsc --noEmit
+qa:flow: node scripts/qa/videoagent-flow-regression.cjs
+
+No standalone lint or test package script is defined. The production build ran Next.js lint/type validity checks. Project test files were executed directly with node --test.
+
+[PASS] npm run typecheck
+Command: /usr/bin/time -p npm run typecheck
+Exit code: 0
+Full output:
+
+> videoagent-code-online-mvp@0.3.0 typecheck
+> tsc --noEmit
+
+real 0.90
+user 1.67
+sys 0.11
+
+[PASS] project Node test suite
+Command: rg --files -0 -g '*.test.cjs' -g '*.test.js' -g '*.test.mjs' -g '*.spec.cjs' -g '*.spec.js' -g '*.spec.mjs' -g '!node_modules/**' | sort -z | xargs -0 /usr/bin/time -p node --test --test-reporter=dot
+Exit code: 0
+Project test files: 15
+Final TAP summary: tests 168, pass 168, fail 0, skipped 0, cancelled 0, todo 0
+Full compact-reporter output:
+....................
+....................
+....................
+....................
+....................
+....................
+....................
+....................
+........
+real 1.73
+user 8.64
+sys 0.64
+
+Summary verification command output:
+  duration_ms: 15.398458
+  type: 'test'
+  ...
+1..168
+# tests 168
+# suites 0
+# pass 168
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1643.895542
+
+[PASS] npm run build
+Command: /usr/bin/time -p npm run build
+Exit code: 0
+Full output:
+
+> videoagent-code-online-mvp@0.3.0 build
+> next build
+
+  ▲ Next.js 14.2.35
+  - Environments: .env.local
+
+   Creating an optimized production build ...
+ ✓ Compiled successfully
+   Linting and checking validity of types ...
+   Collecting page data ...
+   Generating static pages (0/5) ...
+   Generating static pages (1/5)
+   Generating static pages (2/5)
+   Generating static pages (3/5)
+ ✓ Generating static pages (5/5)
+   Finalizing page optimization ...
+   Collecting build traces ...
+
+Route (app)                              Size     First Load JS
+┌ ○ /                                    57.5 kB         145 kB
+├ ○ /_not-found                          873 B          88.1 kB
+├ ƒ /api/agent/run                       0 B                0 B
+├ ƒ /api/demo-workspace/[id]             0 B                0 B
+├ ƒ /api/health                          0 B                0 B
+├ ƒ /api/image/render                    0 B                0 B
+├ ƒ /api/model-config                    0 B                0 B
+├ ƒ /api/model-config/models             0 B                0 B
+├ ƒ /api/video/render                    0 B                0 B
+└ ○ /icon.svg                            0 B                0 B
++ First Load JS shared by all            87.2 kB
+  ├ chunks/117-14dd35a9dd2203e1.js       31.7 kB
+  ├ chunks/fd9d1056-e3d373074663785d.js  53.6 kB
+  └ other shared chunks (total)          1.86 kB
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
+real 10.87
+user 16.08
+sys 1.58
+
+[FAIL] npm run qa:flow
+Command: /usr/bin/time -p npm run qa:flow
+Exit code: 1
+Full output:
+
+> videoagent-code-online-mvp@0.3.0 qa:flow
+> node scripts/qa/videoagent-flow-regression.cjs
+
+Error: Timed out waiting for demo script stage; last value: false
+    at waitForPage (/Users/carroll/Desktop/videoagent-code-online-live-cn-custom/scripts/qa/videoagent-flow-regression.cjs:201:9)
+    at async run (/Users/carroll/Desktop/videoagent-code-online-live-cn-custom/scripts/qa/videoagent-flow-regression.cjs:726:5)
+real 50.74
+user 3.24
+sys 2.82
+
+Final automation result: FAIL because qa:flow exited 1. Typecheck, all 168 project tests, production build, and the build-integrated lint/type validity step passed.

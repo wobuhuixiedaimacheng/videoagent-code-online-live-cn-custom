@@ -1,0 +1,14 @@
+{
+  "date": "2026-06-30T04:16:38.321Z",
+  "payload": {
+    "prompt": "请生成一条完整中文短剧视频，1080p竖屏，24fps，目标总时长约7秒，画面要流畅，不要低帧率，不要PPT感。\n短剧标题：小彭恋爱史 第1段：第一次心动。\n定位：风趣、幽默、搞笑，有真实办公室短剧感。\n场景：公司茶水间，午后自然光，白色饮水机，咖啡罐，几只马克杯。\n主角小彭：同一位年轻男生，黑色短发，白衬衫，浅灰外套，表情紧张但嘴硬，全片保持同一个人、同一套衣服、同一张脸。\n剧情连续：小彭假装接水等女生进来；女生进门后他装成熟；他紧张到把咖啡粉倒进冷水杯；女生憋笑；小彭强装淡定说“我最近流行喝生咖啡”，喝一口后表情僵住。\n喜剧节奏：尴尬但可爱，笑点靠表情、动作和反差，不要浮夸。\n镜头运动：自然手持或轻微推进，动作连续，人物走位顺畅，不要静态幻灯片。\n画面中文字、字幕、杯子标签、墙上提示、任何UI和旁白必须全部使用中文。禁止英文字幕、英文标识、英文包装、英文UI、英文旁白。",
+    "negativePrompt": "English text, English subtitles, English signs, English packaging, English UI, unreadable text, slideshow, powerpoint, static frames, frozen motion, choppy motion, low frame rate, deformed hands, extra fingers, inconsistent face, different clothes, watermark, poster, split screen",
+    "spec": {
+      "aspectRatio": "9:16",
+      "resolutionTier": "1080p",
+      "targetDurationSeconds": 7,
+      "numFrames": 169,
+      "frameRate": 24
+    }
+  }
+}

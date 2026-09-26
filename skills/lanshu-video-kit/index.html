@@ -1,0 +1,1123 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>lanshu-awesome-ai-video-kit · AI 视频提示词工程库(16 模型 / 433 提示词)</title>
+<meta name="description" content="全网最完整的 AI 视频提示词工程库 — 覆盖 Sora、Veo、Kling、Runway、Pika、Hailuo、Hunyuan、Seedance、HappyHorse、Wan、即梦、Gemini Omni + 4 大开源模型(LTX/Mochi/CogVideoX/Higgsfield) 16 模型完整收录。433 实测提示词 + 7 Claude Skill + 21 篇方法论。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  /* ============= Reset & tokens ============= */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg-base: #06050b;
+    --bg-mesh-1: hsl(258, 75%, 22%);
+    --bg-mesh-2: hsl(330, 75%, 20%);
+    --bg-mesh-3: hsl(195, 65%, 18%);
+    --bg-mesh-4: hsl(48, 70%, 18%);
+
+    /* Liquid Glass surfaces */
+    --glass-1: rgba(255, 255, 255, 0.03);
+    --glass-2: rgba(255, 255, 255, 0.05);
+    --glass-3: rgba(255, 255, 255, 0.08);
+    --glass-border: rgba(255, 255, 255, 0.08);
+    --glass-border-strong: rgba(255, 255, 255, 0.14);
+    --glass-highlight: rgba(255, 255, 255, 0.12);
+    --glass-inner-shadow: rgba(0, 0, 0, 0.5);
+
+    /* Text */
+    --text-primary: rgba(255, 255, 255, 0.98);
+    --text-secondary: rgba(255, 255, 255, 0.66);
+    --text-muted: rgba(255, 255, 255, 0.42);
+    --text-disabled: rgba(255, 255, 255, 0.24);
+
+    /* Accents (彩虹渐变 token) */
+    --accent: #a78bfa;
+    --accent-hover: #c4b5fd;
+    --accent-glow: rgba(167, 139, 250, 0.5);
+
+    /* 16 模型色（与 prompt-browser 完全一致）*/
+    --m-sd: #fb923c;
+    --m-hh: #38bdf8;
+    --m-kl: #f472b6;
+    --m-so: #34d399;
+    --m-ve: #facc15;
+    --m-rw: #c084fc;
+    --m-pk: #fda4af;
+    --m-hl: #5eead4;
+    --m-hy: #93c5fd;
+    --m-wn: #fcd34d;
+    --m-jm: #f9a8d4;
+    --m-gm: #818cf8;   /* Gemini Omni Google indigo - 2026-05 新发布 */
+    /* 4 大开源 */
+    --m-lt: #a3e635;   /* LTX 黄绿 - 实时性 */
+    --m-mo: #fb7185;   /* Mochi 玫红 - 强 prompt */
+    --m-cg: #60a5fa;   /* CogVideoX 蓝 - 中国开源 */
+    --m-hg: #e879f9;   /* Higgsfield 紫品 - 角色一致 */
+
+    /* Radius */
+    --r-sm: 8px;
+    --r-md: 14px;
+    --r-lg: 22px;
+    --r-xl: 32px;
+    --r-full: 999px;
+
+    /* Liquid Glass shadows — 多层 chrome 折射 + 深度 */
+    --shadow-glass:
+      inset 0 1px 0 rgba(255, 255, 255, 0.14),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.04),
+      0 1px 2px rgba(0, 0, 0, 0.2),
+      0 8px 24px rgba(0, 0, 0, 0.3),
+      0 24px 64px -8px rgba(0, 0, 0, 0.4);
+    --shadow-glass-hover:
+      inset 0 1px 0 rgba(255, 255, 255, 0.22),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+      0 2px 4px rgba(0, 0, 0, 0.2),
+      0 16px 40px rgba(0, 0, 0, 0.4),
+      0 40px 100px -16px rgba(0, 0, 0, 0.5);
+  }
+
+  [data-theme="light"] {
+    --bg-base: #f5f3ff;
+    --bg-mesh-1: hsl(258, 90%, 88%);
+    --bg-mesh-2: hsl(330, 85%, 92%);
+    --bg-mesh-3: hsl(195, 75%, 90%);
+    --bg-mesh-4: hsl(48, 90%, 92%);
+    --glass-1: rgba(255, 255, 255, 0.45);
+    --glass-2: rgba(255, 255, 255, 0.65);
+    --glass-3: rgba(255, 255, 255, 0.8);
+    --glass-border: rgba(0, 0, 0, 0.06);
+    --glass-border-strong: rgba(0, 0, 0, 0.12);
+    --glass-highlight: rgba(255, 255, 255, 0.9);
+    --text-primary: rgba(15, 12, 25, 0.92);
+    --text-secondary: rgba(15, 12, 25, 0.6);
+    --text-muted: rgba(15, 12, 25, 0.4);
+    --text-disabled: rgba(15, 12, 25, 0.25);
+    --accent: #7c3aed;
+    --accent-hover: #6d28d9;
+    --accent-glow: rgba(124, 58, 237, 0.35);
+    --shadow-glass:
+      inset 0 1px 0 rgba(255, 255, 255, 0.95),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.4),
+      0 1px 2px rgba(0, 0, 0, 0.04),
+      0 8px 24px rgba(0, 0, 0, 0.08),
+      0 24px 64px -8px rgba(0, 0, 0, 0.12);
+    --shadow-glass-hover:
+      inset 0 1px 0 rgba(255, 255, 255, 1),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.6),
+      0 16px 40px rgba(0, 0, 0, 0.15),
+      0 40px 100px -16px rgba(0, 0, 0, 0.2);
+  }
+
+  html, body {
+    font-family: 'Inter', system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-size: 15px;
+    line-height: 1.6;
+    color: var(--text-primary);
+    background: var(--bg-base);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: 'cv11', 'ss01';
+    overflow-x: hidden;
+  }
+  body { min-height: 100vh; position: relative; }
+
+  /* ============= Animated mesh background ============= */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: -10vh -10vw;
+    background:
+      radial-gradient(45% 55% at 12% 8%, var(--bg-mesh-1) 0%, transparent 60%),
+      radial-gradient(40% 50% at 88% 4%, var(--bg-mesh-2) 0%, transparent 55%),
+      radial-gradient(55% 45% at 50% 100%, var(--bg-mesh-3) 0%, transparent 60%),
+      radial-gradient(40% 40% at 80% 70%, var(--bg-mesh-4) 0%, transparent 50%);
+    pointer-events: none;
+    z-index: 0;
+    animation: meshDrift 30s ease-in-out infinite alternate;
+  }
+  @keyframes meshDrift {
+    0% { transform: translate(0, 0) scale(1); }
+    50% { transform: translate(-2%, -1%) scale(1.05); }
+    100% { transform: translate(2%, 1%) scale(1); }
+  }
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence baseFrequency='0.9'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.06 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 0;
+    opacity: 0.35;
+    mix-blend-mode: overlay;
+  }
+
+  /* ============= Nav ============= */
+  nav.top {
+    position: fixed;
+    top: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 8px 6px 16px;
+    background: var(--glass-2);
+    backdrop-filter: saturate(180%) blur(28px);
+    -webkit-backdrop-filter: saturate(180%) blur(28px);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--r-full);
+    box-shadow: var(--shadow-glass);
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 700;
+    font-size: 13px;
+    color: var(--text-primary);
+    letter-spacing: -0.01em;
+    padding-right: 12px;
+    border-right: 1px solid var(--glass-border);
+    margin-right: 4px;
+  }
+  .brand-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #a78bfa, #f472b6);
+    box-shadow: 0 0 12px var(--accent-glow);
+    animation: brandPulse 2.4s ease-in-out infinite;
+  }
+  @keyframes brandPulse {
+    0%, 100% { box-shadow: 0 0 8px var(--accent-glow); transform: scale(1); }
+    50% { box-shadow: 0 0 16px var(--accent-glow), 0 0 24px var(--accent-glow); transform: scale(1.15); }
+  }
+  .nav-link {
+    padding: 7px 13px;
+    border-radius: var(--r-full);
+    color: var(--text-secondary);
+    text-decoration: none;
+    font-size: 12.5px;
+    font-weight: 500;
+    transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+    white-space: nowrap;
+  }
+  .nav-link:hover {
+    color: var(--text-primary);
+    background: var(--glass-3);
+  }
+  .nav-link.cta {
+    background: var(--accent);
+    color: #fff;
+    margin-left: 4px;
+    box-shadow: 0 0 16px var(--accent-glow);
+  }
+  .nav-link.cta:hover { background: var(--accent-hover); }
+  .nav-icon-btn {
+    width: 30px;
+    height: 30px;
+    border-radius: var(--r-full);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.18s;
+  }
+  .nav-icon-btn:hover { background: var(--glass-3); color: var(--text-primary); }
+  .nav-icon-btn svg { width: 14px; height: 14px; }
+
+  /* ============= Container ============= */
+  .container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 24px;
+    position: relative;
+    z-index: 1;
+  }
+
+  /* ============= HERO ============= */
+  .hero {
+    padding: 160px 0 100px;
+    text-align: center;
+    position: relative;
+  }
+  .hero-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 16px 7px 8px;
+    background: var(--glass-2);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--r-full);
+    font-size: 12.5px;
+    color: var(--text-secondary);
+    margin-bottom: 32px;
+    box-shadow: var(--shadow-glass);
+    animation: slideUp 0.6s cubic-bezier(0.4, 0, 0.2, 1) both;
+  }
+  .hero-badge .pill {
+    background: linear-gradient(135deg, #a78bfa, #f472b6);
+    color: #fff;
+    padding: 3px 9px;
+    border-radius: var(--r-full);
+    font-weight: 600;
+    font-size: 11px;
+    box-shadow: 0 0 12px var(--accent-glow);
+  }
+  @keyframes slideUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  h1.hero-title {
+    font-size: clamp(40px, 6.4vw, 76px);
+    font-weight: 800;
+    line-height: 1.05;
+    letter-spacing: -0.035em;
+    margin-bottom: 24px;
+    animation: slideUp 0.7s 0.1s cubic-bezier(0.4, 0, 0.2, 1) both;
+  }
+  .hero-title .grad {
+    background: linear-gradient(135deg, #a78bfa 0%, #f472b6 40%, #fb923c 70%, #facc15 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    background-size: 200% 200%;
+    animation: shimmerText 6s ease-in-out infinite;
+  }
+  @keyframes shimmerText {
+    0%, 100% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+  }
+
+  .hero-sub {
+    font-size: clamp(15px, 1.7vw, 19px);
+    line-height: 1.6;
+    color: var(--text-secondary);
+    max-width: 720px;
+    margin: 0 auto 40px;
+    animation: slideUp 0.7s 0.2s cubic-bezier(0.4, 0, 0.2, 1) both;
+  }
+
+  .hero-cta {
+    display: inline-flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 12px;
+    margin-bottom: 64px;
+    animation: slideUp 0.7s 0.3s cubic-bezier(0.4, 0, 0.2, 1) both;
+  }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 14px 26px;
+    border-radius: var(--r-full);
+    font-size: 14px;
+    font-weight: 600;
+    text-decoration: none;
+    transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+    cursor: pointer;
+    border: 1px solid transparent;
+  }
+  .btn-primary {
+    background: linear-gradient(135deg, #a78bfa 0%, #8b5cf6 100%);
+    color: #fff;
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.3),
+      0 0 0 1px rgba(167,139,250,0.4),
+      0 8px 24px var(--accent-glow);
+  }
+  .btn-primary:hover {
+    transform: translateY(-2px) scale(1.02);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.4),
+      0 0 0 1px rgba(167,139,250,0.6),
+      0 16px 40px var(--accent-glow);
+  }
+  .btn-ghost {
+    background: var(--glass-2);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-color: var(--glass-border);
+    color: var(--text-primary);
+    box-shadow: var(--shadow-glass);
+  }
+  .btn-ghost:hover {
+    background: var(--glass-3);
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-glass-hover);
+  }
+  .btn svg { width: 14px; height: 14px; }
+
+  /* ============= Stats pills ============= */
+  .stats-row {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 12px;
+    animation: slideUp 0.7s 0.4s cubic-bezier(0.4, 0, 0.2, 1) both;
+  }
+  .stat-pill {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 12px 22px;
+    background: var(--glass-1);
+    backdrop-filter: saturate(180%) blur(28px);
+    -webkit-backdrop-filter: saturate(180%) blur(28px);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--r-full);
+    box-shadow: var(--shadow-glass);
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .stat-pill:hover {
+    transform: translateY(-3px);
+    box-shadow: var(--shadow-glass-hover);
+  }
+  .stat-num {
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    background: linear-gradient(180deg, var(--text-primary), var(--text-secondary));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .stat-label {
+    font-size: 12px;
+    color: var(--text-muted);
+    font-weight: 500;
+  }
+
+  /* ============= Section base ============= */
+  section.block {
+    padding: 80px 0;
+  }
+  .section-head {
+    text-align: center;
+    margin-bottom: 56px;
+  }
+  .section-eyebrow {
+    display: inline-block;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 6px 14px;
+    background: var(--glass-1);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--r-full);
+    margin-bottom: 16px;
+  }
+  h2.section-title {
+    font-size: clamp(28px, 3.6vw, 44px);
+    font-weight: 800;
+    letter-spacing: -0.025em;
+    line-height: 1.15;
+    margin-bottom: 12px;
+  }
+  .section-sub {
+    color: var(--text-secondary);
+    font-size: 15px;
+    max-width: 600px;
+    margin: 0 auto;
+  }
+
+  /* ============= 15 Models Grid ============= */
+  .models-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 16px;
+  }
+  .model-card {
+    position: relative;
+    padding: 24px;
+    background: var(--glass-1);
+    backdrop-filter: saturate(180%) blur(32px);
+    -webkit-backdrop-filter: saturate(180%) blur(32px);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-glass);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    text-decoration: none;
+    color: inherit;
+  }
+  /* Liquid shine effect — 鼠标位置驱动的高光 */
+  .model-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(
+      circle at var(--mx, 50%) var(--my, 50%),
+      rgba(255, 255, 255, 0.06) 0%,
+      transparent 50%
+    );
+    opacity: 0;
+    transition: opacity 0.3s;
+    pointer-events: none;
+  }
+  .model-card:hover {
+    transform: translateY(-4px);
+    border-color: var(--glass-border-strong);
+    background: var(--glass-2);
+    box-shadow: var(--shadow-glass-hover);
+  }
+  .model-card:hover::before { opacity: 1; }
+
+  .model-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 14px;
+  }
+  .model-orb {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    position: relative;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.5),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.2),
+      0 4px 12px currentColor;
+  }
+  .model-orb::after {
+    content: '';
+    position: absolute;
+    top: 6px;
+    left: 9px;
+    width: 10px;
+    height: 6px;
+    background: rgba(255, 255, 255, 0.5);
+    border-radius: 50%;
+    filter: blur(1px);
+  }
+  .model-name {
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    line-height: 1.2;
+  }
+  .model-vendor {
+    font-size: 11.5px;
+    color: var(--text-muted);
+    font-weight: 500;
+    margin-top: 2px;
+  }
+  .model-pitch {
+    font-size: 13.5px;
+    color: var(--text-secondary);
+    line-height: 1.55;
+    margin-bottom: 14px;
+    flex: 1;
+  }
+  .model-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin-bottom: 14px;
+  }
+  .model-tag {
+    font-size: 11px;
+    padding: 3px 9px;
+    background: var(--glass-2);
+    border: 1px solid var(--glass-border);
+    color: var(--text-secondary);
+    border-radius: var(--r-full);
+  }
+  .model-cta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12.5px;
+    color: var(--accent);
+    font-weight: 500;
+  }
+  .model-cta svg {
+    width: 12px;
+    height: 12px;
+    transition: transform 0.2s;
+  }
+  .model-card:hover .model-cta svg { transform: translateX(3px); }
+
+  /* ============= Entries (6 大入口) ============= */
+  .entries-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 18px;
+  }
+  .entry-card {
+    position: relative;
+    padding: 32px;
+    background: var(--glass-1);
+    backdrop-filter: saturate(180%) blur(32px);
+    -webkit-backdrop-filter: saturate(180%) blur(32px);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-glass);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    text-decoration: none;
+    color: inherit;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    min-height: 220px;
+  }
+  .entry-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(
+      circle at var(--mx, 50%) var(--my, 0%),
+      rgba(167, 139, 250, 0.10) 0%,
+      transparent 60%
+    );
+    opacity: 0;
+    transition: opacity 0.3s;
+    pointer-events: none;
+  }
+  .entry-card:hover {
+    transform: translateY(-4px);
+    background: var(--glass-2);
+    border-color: var(--glass-border-strong);
+    box-shadow: var(--shadow-glass-hover);
+  }
+  .entry-card:hover::before { opacity: 1; }
+
+  .entry-icon-wrap {
+    width: 48px;
+    height: 48px;
+    border-radius: var(--r-md);
+    background: linear-gradient(135deg, var(--icon-from, #a78bfa) 0%, var(--icon-to, #f472b6) 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 18px;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.3),
+      0 8px 20px var(--icon-glow, var(--accent-glow));
+  }
+  .entry-icon-wrap svg { width: 22px; height: 22px; color: #fff; }
+  .entry-title {
+    font-size: 19px;
+    font-weight: 700;
+    letter-spacing: -0.015em;
+    margin-bottom: 8px;
+  }
+  .entry-desc {
+    font-size: 13.5px;
+    color: var(--text-secondary);
+    line-height: 1.55;
+    flex: 1;
+    margin-bottom: 16px;
+  }
+  .entry-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .entry-count {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .entry-arrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--accent);
+  }
+  .entry-arrow svg {
+    width: 13px;
+    height: 13px;
+    transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .entry-card:hover .entry-arrow svg { transform: translateX(4px); }
+
+  /* ============= Quick start ============= */
+  .quickstart {
+    background: var(--glass-1);
+    backdrop-filter: saturate(180%) blur(28px);
+    -webkit-backdrop-filter: saturate(180%) blur(28px);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-glass);
+    overflow: hidden;
+  }
+  .qs-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--glass-border);
+    background: var(--glass-1);
+  }
+  .qs-tab {
+    padding: 14px 22px;
+    font-size: 12.5px;
+    color: var(--text-secondary);
+    font-weight: 500;
+    cursor: pointer;
+    border: none;
+    background: transparent;
+    border-right: 1px solid var(--glass-border);
+    font-family: inherit;
+    transition: all 0.15s;
+  }
+  .qs-tab:hover { color: var(--text-primary); background: var(--glass-2); }
+  .qs-tab.active {
+    color: var(--text-primary);
+    background: var(--glass-3);
+    border-bottom: 2px solid var(--accent);
+    margin-bottom: -1px;
+  }
+  .qs-body {
+    padding: 26px 28px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    line-height: 1.75;
+    color: var(--text-primary);
+    white-space: pre;
+    overflow-x: auto;
+  }
+  .qs-body .cmd { color: var(--accent); }
+  .qs-body .comment { color: var(--text-muted); }
+  .qs-body .str { color: #34d399; }
+
+  /* ============= Footer ============= */
+  footer {
+    padding: 60px 0 40px;
+    text-align: center;
+    border-top: 1px solid var(--glass-border);
+    margin-top: 80px;
+  }
+  .footer-grad {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--accent-glow), transparent);
+    margin-bottom: 40px;
+  }
+  .footer-text {
+    color: var(--text-secondary);
+    font-size: 13px;
+    margin-bottom: 14px;
+  }
+  .footer-links {
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 18px;
+    font-size: 12.5px;
+  }
+  .footer-links a {
+    color: var(--text-muted);
+    text-decoration: none;
+    transition: color 0.18s;
+  }
+  .footer-links a:hover { color: var(--accent); }
+
+  /* ============= Scrollbar ============= */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: var(--glass-border-strong);
+    border-radius: var(--r-full);
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover { background-color: var(--text-muted); background-clip: padding-box; }
+
+  /* ============= Responsive ============= */
+  @media (max-width: 720px) {
+    nav.top { padding: 4px 6px 4px 12px; flex-wrap: wrap; max-width: 95vw; }
+    .nav-link { padding: 5px 10px; font-size: 12px; }
+    .hero { padding: 120px 0 60px; }
+    .container { padding: 0 16px; }
+    section.block { padding: 50px 0; }
+    .entry-card { padding: 24px; min-height: auto; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ================== Top Nav ================== -->
+<nav class="top">
+  <div class="brand">
+    <span class="brand-dot"></span>
+    <span>lanshu-video-kit</span>
+  </div>
+  <a class="nav-link" href="#models">15 模型</a>
+  <a class="nav-link" href="methodology/">📖 方法论</a>
+  <a class="nav-link" href="prompts/">📚 Prompts</a>
+  <a class="nav-link" href="skills/">🛠️ Skills</a>
+  <a class="nav-link" href="tools/prompt-browser/">🌐 Browser</a>
+  <a class="nav-link" href="tools/cross-model/">🔀 Matrix</a>
+  <a class="nav-link cta" href="tools/prompt-browser/">浏览提示词 →</a>
+  <button class="nav-icon-btn" id="themeToggle" title="切换主题" aria-label="切换主题">
+    <svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+    </svg>
+  </button>
+</nav>
+
+<!-- ================== HERO ================== -->
+<section class="hero">
+  <div class="container">
+    <div class="hero-badge">
+      <span class="pill">v0.8</span>
+      <span>全网最完整 · 16 模型(12 商业 + 4 开源) · 433 实测提示词</span>
+    </div>
+    <h1 class="hero-title">
+      AI 视频提示词工程<br>
+      <span class="grad">从一个钻石级开源套件开始</span>
+    </h1>
+    <p class="hero-sub">
+      11 商业:Sora · Veo · Kling · Runway · Pika · Hailuo · Hunyuan · Seedance · HappyHorse · Wan · 即梦
+      <br>+ <b style="color:#818cf8">⭐ Gemini Omni</b>(2026-05 新)
+      <br>4 开源:LTX-Video · Mochi 1 · CogVideoX 5B · Higgsfield Soul
+      <br>—— 15 大模型完整方法论 + 一键可复制的实测提示词 + Claude Code 自动化技能。
+    </p>
+    <div class="hero-cta">
+      <a class="btn btn-primary" href="tools/prompt-browser/">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/>
+        </svg>
+        打开 Prompt Browser
+      </a>
+      <a class="btn btn-ghost" href="https://github.com/cclank/lanshu-awesome-ai-video-kit" target="_blank">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 .3a12 12 0 0 0-3.8 23.4c.6.1.8-.3.8-.6v-2c-3.3.7-4-1.6-4-1.6-.6-1.4-1.4-1.8-1.4-1.8-1-.8.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.7-1.6-2.6-.3-5.4-1.4-5.4-6 0-1.3.5-2.4 1.3-3.3-.1-.3-.6-1.6.1-3.3 0 0 1-.3 3.3 1.3a11.5 11.5 0 0 1 6 0c2.3-1.6 3.3-1.3 3.3-1.3.7 1.7.2 3 .1 3.3.8.9 1.3 2 1.3 3.3 0 4.6-2.8 5.7-5.5 6 .5.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6A12 12 0 0 0 12 .3"/></svg>
+        GitHub Star
+      </a>
+      <a class="btn btn-ghost" href="methodology/">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+        </svg>
+        15 篇方法论
+      </a>
+    </div>
+    <div class="stats-row">
+      <div class="stat-pill"><span class="stat-num">433</span><span class="stat-label">实测提示词</span></div>
+      <div class="stat-pill"><span class="stat-num">15</span><span class="stat-label">主流模型</span></div>
+      <div class="stat-pill"><span class="stat-num">7</span><span class="stat-label">Claude Skill</span></div>
+      <div class="stat-pill"><span class="stat-num">14</span><span class="stat-label">方法论 SOP</span></div>
+      <div class="stat-pill"><span class="stat-num">29</span><span class="stat-label">场景分类</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================== 15 MODELS ================== -->
+<section class="block" id="models">
+  <div class="container">
+    <div class="section-head">
+      <div class="section-eyebrow">全球主流</div>
+      <h2 class="section-title">15 大模型完整收录</h2>
+      <p class="section-sub">12 商业旗舰(中美顶级厂商,新增 Google Gemini Omni ⭐) + 4 开源底座(Apache 2.0 三选一 + Higgsfield Soul ID),附官方文档 + 10-94 条精选提示词。</p>
+    </div>
+    <div class="models-grid" id="modelsGrid"></div>
+  </div>
+</section>
+
+<!-- ================== ENTRIES ================== -->
+<section class="block" id="entries">
+  <div class="container">
+    <div class="section-head">
+      <div class="section-eyebrow">从这里开始</div>
+      <h2 class="section-title">6 个核心入口</h2>
+      <p class="section-sub">不论你是创作者、开发者还是研究者，都能找到对应的工具与文档。</p>
+    </div>
+    <div class="entries-grid">
+
+      <a class="entry-card" href="tools/prompt-browser/" style="--icon-from:#a78bfa;--icon-to:#f472b6;--icon-glow:rgba(167,139,250,0.4)">
+        <div class="entry-icon-wrap">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        </div>
+        <div class="entry-title">Prompt Browser</div>
+        <div class="entry-desc">单页 HTML 浏览器,15 模型彩虹筛选 + URL 状态同步 + 键盘导航 + 卡片详情 Drawer,直接复制即用。</div>
+        <div class="entry-meta">
+          <span class="entry-count">433 条 · 29 分类</span>
+          <span class="entry-arrow">开始浏览 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></span>
+        </div>
+      </a>
+
+      <a class="entry-card" href="methodology/" style="--icon-from:#34d399;--icon-to:#06b6d4;--icon-glow:rgba(52,211,153,0.4)">
+        <div class="entry-icon-wrap">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+        </div>
+        <div class="entry-title">方法论 SOP</div>
+        <div class="entry-desc">16 篇精炼写作 SOP:基础公式 / 进阶公式 / 分镜时序 / 情绪外化 / 5 模型独立篇 + 6 模型速查 + 跨模型对比 + 12 类避坑 + 4 开源模型速查 + Seedance Masterclass(10 YouTube 教学) + Gemini Omni 公式。</div>
+        <div class="entry-meta">
+          <span class="entry-count">21 篇 · 每篇 3-18 分钟</span>
+          <span class="entry-arrow">系统学习 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></span>
+        </div>
+      </a>
+
+      <a class="entry-card" href="skills/" style="--icon-from:#fb923c;--icon-to:#f97316;--icon-glow:rgba(251,146,60,0.4)">
+        <div class="entry-icon-wrap">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+        </div>
+        <div class="entry-title">Claude Code Skills</div>
+        <div class="entry-desc">7 个开箱即用的 Skill:model-selector(15 模型购物顾问) + prompt-translator(跨模型转换) + seedance ×3 + happyhorse + kling-prompter。让 Claude 自动写、修、拆、翻。</div>
+        <div class="entry-meta">
+          <span class="entry-count">7 个 Skill</span>
+          <span class="entry-arrow">安装 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></span>
+        </div>
+      </a>
+
+      <a class="entry-card" href="tools/cross-model/" style="--icon-from:#f472b6;--icon-to:#ec4899;--icon-glow:rgba(244,114,182,0.4)">
+        <div class="entry-icon-wrap">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+        </div>
+        <div class="entry-title">Cross-Model Matrix v2 ★</div>
+        <div class="entry-desc">同一场景在 11 个商业模型上的最佳 prompt 对照。10 场景:产品 / 双人对话 / 物理动作 / I2V / 多人会议 / 恐怖 / 自然延时 / 抽象 / 武侠 / 萌宠。可驱动 prompt-translator skill。</div>
+        <div class="entry-meta">
+          <span class="entry-count">10 场景 × 11 模型 = 110 对照</span>
+          <span class="entry-arrow">打开矩阵 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></span>
+        </div>
+      </a>
+
+      <a class="entry-card" href="viewer.html?file=RESOURCES.md" style="--icon-from:#facc15;--icon-to:#eab308;--icon-glow:rgba(250,204,21,0.4)">
+        <div class="entry-icon-wrap">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+        </div>
+        <div class="entry-title">Resources · 资源清单</div>
+        <div class="entry-desc">15 模型官方文档 + 4 开源仓库 + 学习资源 + 测评博客 + API SDK + 社区讨论 + 姊妹方向(图生)的完整开荒包。</div>
+        <div class="entry-meta">
+          <span class="entry-count">50+ 精选链接</span>
+          <span class="entry-arrow">浏览 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></span>
+        </div>
+      </a>
+
+      <a class="entry-card" href="viewer.html?file=CONTRIBUTING.md" style="--icon-from:#5eead4;--icon-to:#14b8a6;--icon-glow:rgba(94,234,212,0.4)">
+        <div class="entry-icon-wrap">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        </div>
+        <div class="entry-title">Contributing · 贡献</div>
+        <div class="entry-desc">欢迎贡献新提示词、新模型、新方法论或 Skill。完整 JSON schema + 贡献流程 + 校验脚本。</div>
+        <div class="entry-meta">
+          <span class="entry-count">PRs welcome</span>
+          <span class="entry-arrow">了解 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></span>
+        </div>
+      </a>
+
+    </div>
+  </div>
+</section>
+
+<!-- ================== QUICK START ================== -->
+<section class="block" id="quickstart">
+  <div class="container" style="max-width: 880px;">
+    <div class="section-head">
+      <div class="section-eyebrow">3 分钟上手</div>
+      <h2 class="section-title">快速开始</h2>
+      <p class="section-sub">三种使用方式，按需选择。</p>
+    </div>
+
+    <div class="quickstart">
+      <div class="qs-tabs">
+        <button class="qs-tab active" data-tab="browse">浏览提示词</button>
+        <button class="qs-tab" data-tab="claude">让 Claude 帮写</button>
+        <button class="qs-tab" data-tab="study">系统学习</button>
+      </div>
+      <div class="qs-body" id="qsBody"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================== Footer ================== -->
+<footer>
+  <div class="container">
+    <div class="footer-grad"></div>
+    <div class="footer-text">
+      <strong style="color: var(--text-primary)">lanshu-awesome-ai-video-kit</strong>
+      · Made with ❤️ by lanshu · MIT License
+    </div>
+    <div class="footer-links">
+      <a href="viewer.html?file=README.md">README</a>
+      <a href="viewer.html?file=CHANGELOG.md">CHANGELOG</a>
+      <a href="viewer.html?file=CONTRIBUTING.md">Contributing</a>
+      <a href="viewer.html?file=RESOURCES.md">Resources</a>
+      <a href="tools/prompt-browser/">Prompt Browser</a>
+      <a href="methodology/">Methodology</a>
+      <a href="skills/">Skills</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+// ============= Models data =============
+const MODELS = [
+  { id: 'seedance-2.0', name: 'Doubao Seedance 2.0', vendor: '字节 · 火山方舟', dot: '#fb923c', pitch: '综合 SOTA。火山方舟 53 页官方 PDF + 8 要素公式 + 复杂多镜头叙事 + 多主体一致性。即梦底层引擎。', tags: ['⭐ SOTA', '官方 PDF', '60s 2K'], url: 'https://www.volcengine.com/product/ark', browseUrl: 'tools/prompt-browser/#model=seedance-2.0' },
+  { id: 'happyhorse-1.0', name: 'HappyHorse 1.0', vendor: '阿里巴巴', dot: '#38bdf8', pitch: '紧凑短片专精。30-55 词 + 8s 时序节拍 + 原生环境音(with X audible)。', tags: ['紧凑短片', '8s 节拍', '原生音频'], url: 'https://tryhappyhorseai.com/', browseUrl: 'tools/prompt-browser/#model=happyhorse-1.0' },
+  { id: 'kling-3.0', name: 'Kling 3.0', vendor: '快手 · 可灵', dot: '#f472b6', pitch: 'S 级。48fps 1080p + 同步音频 lip-sync。Motion Brush 图生视频。中文并列第一。', tags: ['S Tier', '中文最强', '图生视频'], url: 'https://klingai.com/', browseUrl: 'tools/prompt-browser/#model=kling-3.0' },
+  { id: 'veo-3', name: 'Veo 3.1', vendor: 'Google DeepMind', dot: '#facc15', pitch: 'S 级。业界原生音频最强 — 多人对话 + 精确音效 + 配乐自动生成。最长 60s。', tags: ['S Tier', '原生音频', '60s'], url: 'https://deepmind.google/models/veo/', browseUrl: 'tools/prompt-browser/#model=veo-3' },
+  { id: 'sora-2', name: 'Sora 2 ⚠️', vendor: 'OpenAI', dot: '#34d399', pitch: '电影质感 + Cameos + 极致物理仿真。⚠️ OpenAI 已宣布 web/app 于 2026-04-26 停止,建议迁移到 Veo/Kling/Runway。', tags: ['⚠️ EOL', '电影艺术', 'Shot List'], url: 'https://openai.com/sora/', browseUrl: 'tools/prompt-browser/#model=sora-2' },
+  { id: 'runway-gen4', name: 'Runway Gen-4.5 / Aleph', vendor: 'Runway', dot: '#c084fc', pitch: 'A 级,Gen-4.5 ELO 综合质量排名第一。Aleph 视频编辑独家(add/remove/re-light/re-style)。', tags: ['ELO 第一', '视频编辑', 'Aleph 独家'], url: 'https://runwayml.com/', browseUrl: 'tools/prompt-browser/#model=runway-gen4' },
+  { id: 'pika-2.5', name: 'Pika 2.5', vendor: 'Pika Labs', dot: '#fda4af', pitch: '性价比之王 $8/月。Pikaffects 15+ 创意特效(Melt/Explode/Squish/Cake-ify)+ Pikaframes。', tags: ['创意特效', '$8/月', 'iOS App'], url: 'https://pikaslabs.com/', browseUrl: 'tools/prompt-browser/#model=pika-2.5' },
+  { id: 'hailuo-02', name: 'Hailuo 02 (海螺)', vendor: 'MiniMax', dot: '#5eead4', pitch: '物理仿真业界第一。水/火/烟/布料/重力/材质精度卓越。另有 Hailuo 2.3 性价比版本。', tags: ['物理仿真', '1080p', 'Director AI'], url: 'https://platform.minimax.io/', browseUrl: 'tools/prompt-browser/#model=hailuo-02' },
+  { id: 'hunyuan-video', name: 'Hunyuan Video 1.5', vendor: '腾讯混元', dot: '#93c5fd', pitch: '开源最强(13B / 1.5 仅 8.3B)。RTX 4090 可跑 + LoRA 训练 + 跨维度生成 + ComfyUI 集成。', tags: ['开源', 'LoRA', '本地部署'], url: 'https://github.com/Tencent-Hunyuan/HunyuanVideo', browseUrl: 'tools/prompt-browser/#model=hunyuan-video' },
+  { id: 'wan-2.5', name: 'Wan 2.7 (通义万相)', vendor: '阿里巴巴', dot: '#fcd34d', pitch: '数字人 lip-sync 业界最准。Wan 2.6 开源稳定版 / Wan 2.7 最新(更长 prompt + 更锐控制)。', tags: ['数字人', 'Wan 2.6 开源', 'Wan 2.7 最新'], url: 'https://www.alibabacloud.com/help/en/model-studio/', browseUrl: 'tools/prompt-browser/#model=wan-2.5' },
+  { id: 'jimeng-3', name: '即梦 AI', vendor: '字节 · 剪映 (Seedance 2.0 引擎)', dot: '#f9a8d4', pitch: '字节剪映 C 端产品,底层即 Seedance 2.0。中式美学 + 8+ 语言唇形对齐 + 60s 2K。', tags: ['Seedance 2.0', '中式美学', '剪映集成'], url: 'https://jimeng.jianying.com/', browseUrl: 'tools/prompt-browser/#model=jimeng-3' },
+  { id: 'gemini-omni', name: 'Gemini Omni (Omni Flash) ⭐NEW', vendor: 'Google AI / DeepMind', dot: '#818cf8', pitch: '2026-05 新发布跨模态统一模型(any-input-to-anything)。🔥 迭代编辑 targeted updates 不重写 + 文字渲染业界强项 + Real-World 锚点 + 中途改动作保连续性。', tags: ['⭐ NEW', '迭代编辑', '文字渲染', '跨模态'], url: 'https://x.com/GoogleAI/status/2059381218660270435', browseUrl: 'tools/prompt-browser/#model=gemini-omni' },
+  // ===== 4 大开源 =====
+  { id: 'ltx-video', name: 'LTX-Video 0.9.7', vendor: 'Lightricks (Apache 2.0)', dot: '#a3e635', pitch: '实时生成颠覆性 — 5 秒视频在 5 秒内生成,30FPS 1216×704。迭代式实时改 prompt 的唯一选择。', tags: ['实时', 'Apache 2.0', '本地部署'], url: 'https://github.com/Lightricks/LTX-Video', browseUrl: 'tools/prompt-browser/#model=ltx-video' },
+  { id: 'mochi-1', name: 'Mochi 1', vendor: 'Genmo (Apache 2.0)', dot: '#fb7185', pitch: '10B 最大开源 AsymmDiT。强 prompt 遵循 — 你写啥它出啥,几乎不偏。物理细节越精确效果越准。', tags: ['10B 最大', '强遵循', 'Apache 2.0'], url: 'https://github.com/genmoai/mochi', browseUrl: 'tools/prompt-browser/#model=mochi-1' },
+  { id: 'cogvideox-5b', name: 'CogVideoX 5B / 1.5', vendor: '智谱 · 清华 (Apache 2.0)', dot: '#60a5fa', pitch: '中国出品 + 完全开源。768×1360 高分辨率 + 226 token 长 prompt + T2V/I2V 双模式专门权重。', tags: ['中国开源', '高分辨率', 'I2V 专门权重'], url: 'https://github.com/zai-org/CogVideo', browseUrl: 'tools/prompt-browser/#model=cogvideox-5b' },
+  { id: 'higgsfield-soul', name: 'Higgsfield Soul 2.0 / DoP', vendor: 'Higgsfield AI', dot: '#e879f9', pitch: 'Soul ID 业界最强角色一致性 — 训练一次,所有场景同一张脸。DoP 镜头模板 + AI Director 60-90s 智能分镜。', tags: ['Soul ID', 'AI Director', '60-90s'], url: 'https://higgsfield.ai/', browseUrl: 'tools/prompt-browser/#model=higgsfield-soul' }
+];
+
+// ============= Render Models =============
+function renderModels() {
+  const html = MODELS.map(m => `
+    <a class="model-card" href="${m.browseUrl}" style="color: inherit">
+      <div class="model-head">
+        <div class="model-orb" style="background: radial-gradient(circle at 30% 30%, ${shade(m.dot, 25)}, ${m.dot} 60%, ${shade(m.dot, -20)}); color: ${m.dot}"></div>
+        <div>
+          <div class="model-name">${m.name}</div>
+          <div class="model-vendor">${m.vendor}</div>
+        </div>
+      </div>
+      <div class="model-pitch">${m.pitch}</div>
+      <div class="model-tags">
+        ${m.tags.map(t => `<span class="model-tag">${t}</span>`).join('')}
+      </div>
+      <div class="model-cta">
+        浏览提示词
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+      </div>
+    </a>
+  `).join('');
+  document.getElementById('modelsGrid').innerHTML = html;
+}
+
+// Lighten/darken color helper
+function shade(hex, percent) {
+  const num = parseInt(hex.slice(1), 16);
+  let r = (num >> 16) + percent * 2;
+  let g = ((num >> 8) & 0x00FF) + percent * 2;
+  let b = (num & 0x0000FF) + percent * 2;
+  r = Math.max(0, Math.min(255, r));
+  g = Math.max(0, Math.min(255, g));
+  b = Math.max(0, Math.min(255, b));
+  return '#' + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+}
+
+// ============= Mouse-driven shine =============
+function bindShine() {
+  document.querySelectorAll('.model-card, .entry-card').forEach(c => {
+    c.addEventListener('mousemove', e => {
+      const r = c.getBoundingClientRect();
+      const mx = ((e.clientX - r.left) / r.width) * 100;
+      const my = ((e.clientY - r.top) / r.height) * 100;
+      c.style.setProperty('--mx', mx + '%');
+      c.style.setProperty('--my', my + '%');
+    });
+  });
+}
+
+// ============= Quick start tabs =============
+const QS = {
+  browse: `<span class="comment"># 启动 Prompt Browser - 单页 HTML 离线可用</span>
+<span class="cmd">$</span> git clone <span class="str">https://github.com/cclank/lanshu-awesome-ai-video-kit.git</span>
+<span class="cmd">$</span> cd lanshu-awesome-ai-video-kit
+<span class="cmd">$</span> python3 -m http.server 8000
+
+<span class="comment"># 浏览器打开</span>
+<span class="cmd">→</span> http://localhost:8000/                       <span class="comment"># 项目主页(你正在看)</span>
+<span class="cmd">→</span> http://localhost:8000/tools/prompt-browser/  <span class="comment"># 提示词浏览器</span>`,
+  claude: `<span class="comment"># 把 7 个 Skill 安装到 Claude Code</span>
+<span class="cmd">$</span> for s in model-selector prompt-translator seedance-prompter \\
+         seedance-storyboard seedance-debugger happyhorse-prompter \\
+         kling-prompter; do
+    ln -s <span class="str">"$(pwd)/skills/$s"</span> ~/.claude/skills/$s
+  done
+
+<span class="comment"># 然后在 Claude Code 里直接说自然语言</span>
+<span class="cmd">"</span><span class="str">用哪个 AI 视频模型做中文短剧?</span><span class="cmd">"</span>       <span class="comment"># → model-selector(15 模型)</span>
+<span class="cmd">"</span><span class="str">把这段 Sora prompt 转成 Kling 写法</span><span class="cmd">"</span>    <span class="comment"># → prompt-translator</span>
+<span class="cmd">"</span><span class="str">帮我写个香水广告的提示词</span><span class="cmd">"</span>           <span class="comment"># → seedance-prompter</span>
+<span class="cmd">"</span><span class="str">我的提示词出问题了,人脸不像</span><span class="cmd">"</span>       <span class="comment"># → seedance-debugger</span>`,
+  study: `<span class="comment"># 按顺序读 methodology/ 下的 21 篇 SOP</span>
+
+<span class="cmd">01</span> 基础公式      <span class="comment"># 4 种任务类型怎么选 - 3 分钟</span>
+<span class="cmd">02</span> 进阶公式      <span class="comment"># 8 要素拼"工程级"提示词 - 8 分钟</span>
+<span class="cmd">03</span> 分镜时序      <span class="comment"># 复杂剧情拆"镜头1/镜头2/镜头3" - 5 分钟</span>
+<span class="cmd">04</span> 情绪外化表    <span class="comment"># 用动作细节替"很悲伤" - 3 分钟</span>
+<span class="cmd">05-07</span> 速查类     <span class="comment"># 运镜词典 / 约束词 / 特殊字符</span>
+<span class="cmd">08</span> 避坑 12 问    <span class="comment"># 现象 → 根因 → 解法</span>
+<span class="cmd">09-12</span> 模型独立篇 <span class="comment"># Kling / Sora / Veo + 5 模型对比</span>
+<span class="cmd">13</span> 六模型速查    <span class="comment"># Runway/Pika/Hailuo/Hunyuan/Wan/即梦 + 11 模型选型</span>
+<span class="cmd">14</span> 四开源速查    <span class="comment"># ★ LTX / Mochi / CogVideoX / Higgsfield - 12 分钟</span>`
+};
+
+function setQs(tab) {
+  document.querySelectorAll('.qs-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+  document.getElementById('qsBody').innerHTML = QS[tab];
+}
+
+// ============= Theme =============
+function updateThemeIcon(theme) {
+  const icon = document.getElementById('themeIcon');
+  if (theme === 'light') {
+    icon.innerHTML = '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>';
+  } else {
+    icon.innerHTML = '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>';
+  }
+}
+
+// 主题切换 — 与 site-theme.js 共用 storage key 实现跨页同步
+const THEME_KEY = 'lanshu-video-kit-theme';
+document.getElementById('themeToggle').addEventListener('click', () => {
+  const cur = document.documentElement.getAttribute('data-theme') || 'dark';
+  const next = cur === 'light' ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', next);
+  try { localStorage.setItem(THEME_KEY, next); } catch (e) {}
+  updateThemeIcon(next);
+});
+
+// ============= Init =============
+try {
+  const saved = localStorage.getItem(THEME_KEY) || localStorage.getItem('theme'); // 兼容旧 key
+  if (saved) {
+    document.documentElement.setAttribute('data-theme', saved);
+    updateThemeIcon(saved);
+  }
+} catch (e) {}
+
+renderModels();
+bindShine();
+setQs('browse');
+
+document.querySelectorAll('.qs-tab').forEach(t => {
+  t.addEventListener('click', () => setQs(t.dataset.tab));
+});
+
+// Smooth scroll for nav anchors
+document.querySelectorAll('a[href^="#"]').forEach(a => {
+  a.addEventListener('click', e => {
+    const id = a.getAttribute('href').slice(1);
+    const el = document.getElementById(id);
+    if (el) {
+      e.preventDefault();
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  });
+});
+</script>
+
+</body>
+</html>

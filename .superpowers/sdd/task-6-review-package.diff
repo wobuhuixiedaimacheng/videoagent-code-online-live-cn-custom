@@ -1,0 +1,1644 @@
+diff --git a/.superpowers/sdd/task-6-before/lib/productionAssets.ts b/lib/productionAssets.ts
+index dbd9325..5fe0948 100644
+--- a/.superpowers/sdd/task-6-before/lib/productionAssets.ts
++++ b/lib/productionAssets.ts
+@@ -26,6 +26,15 @@ type LegacyPrompt = {
+ 
+ type StageDefinition = Pick<CharacterVariantAsset, 'id' | 'label' | 'ageLabel' | 'wardrobe'>;
+ 
++export type StageImageJob = {
++  stage: 'character' | 'scene';
++  assetId: string;
++  variantId?: string;
++  kind?: 'portrait' | 'multi_view' | 'expression_sheet';
++  prompt: string;
++  negativePrompt: string;
++};
++
+ const CHARACTER_VARIANTS: StageDefinition[] = [
+   { id: 'kindergarten', label: '幼儿园', ageLabel: '5 岁', wardrobe: '幼儿园日常服装和红色书包' },
+   { id: 'primary', label: '小学', ageLabel: '10 岁', wardrobe: '小学校服和红色铅笔盒' },
+@@ -46,6 +55,33 @@ function stringList(value: unknown): string[] {
+   return Array.isArray(value) ? value.map(stringValue).filter(Boolean) : [];
+ }
+ 
++const CANONICAL_EXPRESSION_IDS = new Set([
++  'joy', 'anger', 'sadness', 'fear', 'surprise', 'disgust', 'shy', 'nervous', 'confused', 'awkward', 'expectant', 'calm'
++]);
++
++const EXPRESSION_ID_ALIASES: Record<string, string> = {
++  joy: 'joy', '喜悦': 'joy', '开心': 'joy', '高兴': 'joy',
++  anger: 'anger', '愤怒': 'anger', '生气': 'anger',
++  sadness: 'sadness', '悲伤': 'sadness', '难过': 'sadness',
++  fear: 'fear', '恐惧': 'fear', '害怕': 'fear',
++  surprise: 'surprise', '惊讶': 'surprise',
++  disgust: 'disgust', '厌恶': 'disgust',
++  shy: 'shy', '害羞': 'shy',
++  nervous: 'nervous', '紧张': 'nervous',
++  confused: 'confused', '疑惑': 'confused', '困惑': 'confused',
++  awkward: 'awkward', '尴尬': 'awkward',
++  expectant: 'expectant', '期待': 'expectant', '期盼': 'expectant',
++  calm: 'calm', '平静': 'calm', '冷静': 'calm'
++};
++
++function canonicalExpressionIds(value: unknown): string[] {
++  const canonical = stringList(value).map((item) => {
++    const normalized = item.trim().toLowerCase();
++    return EXPRESSION_ID_ALIASES[normalized] || (CANONICAL_EXPRESSION_IDS.has(normalized) ? normalized : '');
++  }).filter(Boolean);
++  return [...new Set(canonical)];
++}
++
+ function jsonFileState(workspace: WorkspaceSnapshot | null, path: string): JsonFileState {
+   const file = workspace?.files.find((item) => item.path === path);
+   if (!file) return { status: 'missing' };
+@@ -253,7 +289,7 @@ function normalizedCharacters(value: JsonRecord | null): CharacterAsset[] {
+     referenceStrategy: character.referenceStrategy === 'multi_view' || character.referenceStrategy === 'replace_reference'
+       ? character.referenceStrategy
+       : 'face_id',
+-    expressionIds: stringList(character.expressionIds),
++    expressionIds: canonicalExpressionIds(character.expressionIds),
+     variants: Array.isArray(character.variants) ? character.variants.filter(isRecord).map((variant) => ({
+       id: stringValue(variant.id),
+       label: stringValue(variant.label),
+@@ -372,7 +408,7 @@ export function validateStageAssets(stage: ProductionStageId, workspace: Workspa
+     if (state.status === 'invalid') return ['场景资产文件无法解析'];
+     const scenes = normalizedScenes(state.value);
+     if (!scenes.length) return ['场景资产列表为空'];
+-    return scenes.filter((scene) => !scene.referenceImageUrl)
++    return scenes.filter((scene) => coreScene(scene as unknown as JsonRecord) && !scene.referenceImageUrl)
+       .map((scene) => `${scene.title || scene.id || '未命名场景'} 尚未生成主图`);
+   }
+ 
+@@ -389,6 +425,74 @@ export function validateStageAssets(stage: ProductionStageId, workspace: Workspa
+   return [];
+ }
+ 
++function promptLines(...lines: string[]): string {
++  return lines.map((line) => line.trim()).filter(Boolean).join('\n');
++}
++
++function coreScene(scene: JsonRecord): boolean {
++  return scene.core !== false && scene.isCore !== false;
++}
++
++export function missingCharacterImageJobs(workspace: WorkspaceSnapshot): StageImageJob[] {
++  const state = jsonFileState(workspace, 'characters.json');
++  if (state.status !== 'valid' || !Array.isArray(state.value.characters)) return [];
++
++  return state.value.characters.flatMap((character) => {
++    if (!isRecord(character) || character.required !== true || !Array.isArray(character.variants)) return [];
++    const characterPrompt = stringValue(character.imagePrompt) || stringValue(character.prompt);
++    const consistencyPrompt = stringValue(character.consistencyPrompt);
++    const negativePrompt = stringValue(character.negativePrompt);
++    return character.variants.flatMap((variant) => {
++      if (!isRecord(variant) || !stringValue(variant.id) || stringValue(variant.primaryImageUrl)) return [];
++      const prompt = promptLines(
++        stringValue(variant.primaryImagePrompt) || characterPrompt,
++        `年龄：${stringValue(variant.ageLabel)}。服装：${stringValue(variant.wardrobe)}。`,
++        consistencyPrompt ? `角色一致性：${consistencyPrompt}。` : ''
++      );
++      return prompt ? [{
++        stage: 'character' as const,
++        assetId: stringValue(character.id),
++        variantId: stringValue(variant.id),
++        kind: 'portrait' as const,
++        prompt,
++        negativePrompt
++      }] : [];
++    });
++  }).filter((job) => Boolean(job.assetId));
++}
++
++export function missingSceneImageJobs(workspace: WorkspaceSnapshot): StageImageJob[] {
++  const state = jsonFileState(workspace, 'scenes.json');
++  if (state.status !== 'valid' || !Array.isArray(state.value.scenes)) return [];
++
++  return state.value.scenes.flatMap((scene) => {
++    if (!isRecord(scene) || !coreScene(scene) || !stringValue(scene.id) || stringValue(scene.referenceImageUrl)) return [];
++    const prompt = promptLines(
++      stringValue(scene.mainImagePrompt) || stringValue(scene.prompt),
++      `地点：${stringValue(scene.location)}。时间：${stringValue(scene.timeOfDay)}。光线：${stringValue(scene.lighting)}。色彩：${stringValue(scene.palette)}。出场角色：${stringList(scene.characterIds).join('、')}。`
++    );
++    return prompt ? [{
++      stage: 'scene' as const,
++      assetId: stringValue(scene.id),
++      prompt,
++      negativePrompt: stringValue(scene.negativePrompt)
++    }] : [];
++  });
++}
++
++export function applyStageImageResult(
++  workspace: WorkspaceSnapshot,
++  result: StageImageJob & { imageUrl: string }
++): WorkspaceSnapshot {
++  const imageUrl = stringValue(result.imageUrl);
++  if (!imageUrl) return workspace;
++  if (result.stage === 'character') {
++    if (!result.variantId || !result.kind) return workspace;
++    return replaceCharacterVariantImage(workspace, result.assetId, result.variantId, result.kind, imageUrl);
++  }
++  return replaceSceneImage(workspace, result.assetId, imageUrl);
++}
++
+ export function replaceCharacterVariantImage(
+   workspace: WorkspaceSnapshot,
+   characterId: string,
+diff --git a/.superpowers/sdd/task-6-before/lib/productionAssets.test.cjs b/lib/productionAssets.test.cjs
+index 7f18363..fd3169c 100644
+--- a/.superpowers/sdd/task-6-before/lib/productionAssets.test.cjs
++++ b/lib/productionAssets.test.cjs
+@@ -4,7 +4,7 @@ const path = require('node:path');
+ const test = require('node:test');
+ const vm = require('node:vm');
+ const ts = require('typescript');
+-const { parseFile, workspaceWith } = require('./testFixtures.cjs');
++const { fileVersion, parseFile, workspaceWith } = require('./testFixtures.cjs');
+ 
+ function loadProductionAssetsModule() {
+   const filePath = path.join(__dirname, 'productionAssets.ts');
+@@ -181,6 +181,98 @@ test('scene image replacement changes only scenes and no-ops for unchanged or un
+   assert.strictEqual(replaceSceneImage(updated, 'missing-scene', 'another-image'), updated);
+ });
+ 
++test('character and scene image jobs update only their own draft assets', () => {
++  const { missingCharacterImageJobs, missingSceneImageJobs, applyStageImageResult } = loadProductionAssetsModule();
++  const fixture = workspaceWith({
++    'characters.json': JSON.stringify({
++      characters: [{
++        id: 'xiaopeng', name: '小澎', required: true, imagePrompt: '小澎真实人物设定',
++        consistencyPrompt: '保持同一张脸', negativePrompt: '不要换脸',
++        variants: [{
++          id: 'primary', label: '小学', ageLabel: '10 岁', wardrobe: '小学校服',
++          primaryImagePrompt: '小学小澎正面主图', primaryImageUrl: ''
++        }]
++      }]
++    }),
++    'scenes.json': JSON.stringify({
++      scenes: [{
++        id: 'scene-1', title: '教室相遇', core: true, location: '教室', timeOfDay: '白天',
++        lighting: '自然光', palette: '暖色', characterIds: ['xiaopeng'],
++        mainImagePrompt: '教室里的小澎', prompt: '教室里的小澎', referenceImageUrl: ''
++      }]
++    })
++  });
++
++  const characterJobs = missingCharacterImageJobs(fixture);
++  const sceneJobs = missingSceneImageJobs(fixture);
++  assert.deepEqual(JSON.parse(JSON.stringify(characterJobs)), [{
++    stage: 'character', assetId: 'xiaopeng', variantId: 'primary', kind: 'portrait',
++    prompt: '小学小澎正面主图\n年龄：10 岁。服装：小学校服。\n角色一致性：保持同一张脸。',
++    negativePrompt: '不要换脸'
++  }]);
++  assert.deepEqual(JSON.parse(JSON.stringify(sceneJobs)), [{
++    stage: 'scene', assetId: 'scene-1',
++    prompt: '教室里的小澎\n地点：教室。时间：白天。光线：自然光。色彩：暖色。出场角色：xiaopeng。',
++    negativePrompt: ''
++  }]);
++
++  const characterNext = applyStageImageResult(fixture, {
++    ...characterJobs[0], imageUrl: 'https://img/primary.png'
++  });
++  assert.equal(parseFile(characterNext, 'characters.json').characters[0].variants[0].primaryImageUrl, 'https://img/primary.png');
++  assert.equal(fileVersion(characterNext, 'scenes.json'), fileVersion(fixture, 'scenes.json'));
++
++  const sceneNext = applyStageImageResult(fixture, {
++    ...sceneJobs[0], imageUrl: 'https://img/scene-1.png'
++  });
++  assert.equal(parseFile(sceneNext, 'scenes.json').scenes[0].referenceImageUrl, 'https://img/scene-1.png');
++  assert.equal(fileVersion(sceneNext, 'characters.json'), fileVersion(fixture, 'characters.json'));
++});
++
++test('missing image jobs and image results are safe no-ops for invalid or unknown targets', () => {
++  const { missingCharacterImageJobs, missingSceneImageJobs, applyStageImageResult } = loadProductionAssetsModule();
++  const invalid = workspaceWith({ 'characters.json': '{ invalid', 'scenes.json': '{ invalid' });
++  assert.deepEqual(Array.from(missingCharacterImageJobs(invalid)), []);
++  assert.deepEqual(Array.from(missingSceneImageJobs(invalid)), []);
++
++  const fixture = workspaceWith({
++    'characters.json': JSON.stringify({ characters: [] }),
++    'scenes.json': JSON.stringify({ scenes: [] })
++  });
++  assert.strictEqual(applyStageImageResult(fixture, {
++    stage: 'character', assetId: 'missing', variantId: 'primary', kind: 'portrait', prompt: '', negativePrompt: '', imageUrl: 'https://img/missing.png'
++  }), fixture);
++  assert.strictEqual(applyStageImageResult(fixture, {
++    stage: 'scene', assetId: 'missing', prompt: '', negativePrompt: '', imageUrl: 'https://img/missing.png'
++  }), fixture);
++});
++
++test('non-core scenes do not create required image jobs or block scene confirmation', () => {
++  const { missingSceneImageJobs, validateStageAssets } = loadProductionAssetsModule();
++  const fixture = workspaceWith({
++    'scenes.json': JSON.stringify({ scenes: [{
++      id: 'transition', title: '过场', core: false, location: '街道', timeOfDay: '傍晚',
++      lighting: '路灯', palette: '蓝灰', characterIds: [], mainImagePrompt: '空街道过场', referenceImageUrl: ''
++    }] })
++  });
++  assert.deepEqual(JSON.parse(JSON.stringify(missingSceneImageJobs(fixture))), []);
++  assert.deepEqual(Array.from(validateStageAssets('scene', fixture)), []);
++});
++
++test('character expression ids normalize producer Chinese labels into canonical UI ids', () => {
++  const { charactersFromWorkspace } = loadProductionAssetsModule();
++  const fixture = workspaceWith({
++    'characters.json': JSON.stringify({ characters: [{
++      id: 'lead', name: '主角', required: true,
++      expressionIds: ['喜悦', '愤怒', '悲伤', '恐惧', '惊讶', '厌恶', '害羞', '紧张', '疑惑', '尴尬', '期待', '平静', '害怕'],
++      variants: []
++    }] })
++  });
++  assert.deepEqual(JSON.parse(JSON.stringify(charactersFromWorkspace(fixture)[0].expressionIds)), [
++    'joy', 'anger', 'sadness', 'fear', 'surprise', 'disgust', 'shy', 'nervous', 'confused', 'awkward', 'expectant', 'calm'
++  ]);
++});
++
+ test('invalid characters JSON remains intact and blocks migration and confirmation', () => {
+   const { migrateLegacyProductionAssets, validateStageAssets } = loadProductionAssetsModule();
+   const workspace = productionAssetWorkspace({
+diff --git a/.superpowers/sdd/task-6-before/app/page.tsx b/app/page.tsx
+index 2000b41..3e45128 100644
+--- a/.superpowers/sdd/task-6-before/app/page.tsx
++++ b/app/page.tsx
+@@ -5,6 +5,7 @@ import { createBlankWorkspace } from '../lib/defaultWorkspace';
+ import type {
+   AgentMessage,
+   AgentRunResponse,
++  CharacterAsset,
+   PatchOperation,
+   ProductionStageId,
+   WorkflowKind,
+@@ -55,7 +56,15 @@ import {
+   stageConfig,
+   stageGenerationInstruction
+ } from '../lib/stageGeneration';
+-import { validateStageAssets } from '../lib/productionAssets';
++import {
++  applyStageImageResult,
++  charactersFromWorkspace,
++  missingCharacterImageJobs,
++  missingSceneImageJobs,
++  productionScenesFromWorkspace,
++  validateStageAssets,
++  type StageImageJob
++} from '../lib/productionAssets';
+ import {
+   modelReadMessage,
+   optionsForLayer,
+@@ -242,6 +251,13 @@ type CharacterAssetCard = {
+   consistency: string;
+   source: string;
+   negativePrompt?: string;
++  faceAnchorVariantId?: string;
++  expressionIds?: string[];
++  referenceStrategy?: CharacterReferenceStrategyId;
++  variants?: Array<CharacterReferenceVariant & {
++    multiViewImageUrl?: string;
++    expressionSheetImageUrl?: string;
++  }>;
+ };
+ 
+ type CharacterDesignOutputKind = 'portrait' | 'multi_view' | 'expression_sheet';
+@@ -257,26 +273,31 @@ const CHARACTER_EXPRESSION_OPTIONS = [
+   { id: 'joy', label: '喜', prompt: '开心微笑，眼神明亮，嘴角自然上扬' },
+   { id: 'anger', label: '怒', prompt: '生气皱眉，眼神有压迫感，嘴唇收紧' },
+   { id: 'sadness', label: '哀', prompt: '难过低落，眼眶微红，表情克制' },
+-  { id: 'delight', label: '乐', prompt: '开怀大笑，脸部放松，动作轻快' },
++  { id: 'fear', label: '恐惧', prompt: '瞳孔放大，身体后撤，呼吸急促' },
+   { id: 'surprise', label: '惊讶', prompt: '睁大眼睛，轻微张口，身体短暂停顿' },
++  { id: 'disgust', label: '厌恶', prompt: '轻皱鼻子，嘴角下压，反应克制' },
+   { id: 'shy', label: '害羞', prompt: '脸颊微红，眼神躲闪，动作拘谨' },
+   { id: 'nervous', label: '紧张', prompt: '肩膀收紧，频繁吞咽，眼神游移' },
+   { id: 'awkward', label: '尴尬', prompt: '僵硬微笑，视线飘开，手部无处安放' },
+   { id: 'confused', label: '疑惑', prompt: '眉头轻皱，歪头观察，反应迟疑' },
+-  { id: 'determined', label: '坚定', prompt: '目光稳定，下颌收紧，动作果断' },
+-  { id: 'tired', label: '疲惫', prompt: '眼皮沉重，动作变慢，身体松垮' },
+-  { id: 'proud', label: '得意', prompt: '挑眉偷笑，抬下巴，带一点小炫耀' },
+-  { id: 'fear', label: '恐惧', prompt: '瞳孔放大，身体后撤，呼吸急促' },
+-  { id: 'relieved', label: '释然', prompt: '长出一口气，表情放松，轻轻点头' },
+-  { id: 'gentle', label: '温柔', prompt: '眼神柔和，微笑克制，动作放慢' },
+-  { id: 'focused', label: '专注', prompt: '凝视目标，少眨眼，动作精准' },
+-  { id: 'wronged', label: '委屈', prompt: '嘴角下压，眼神闪躲，像忍住不说' },
+-  { id: 'panic', label: '慌张', prompt: '动作变快，左右张望，短促呼吸' }
++  { id: 'expectant', label: '期待', prompt: '眼神向前，嘴角轻抬，等待回应' },
++  { id: 'calm', label: '平静', prompt: '呼吸稳定，表情放松，目光自然' }
+ ] as const;
+ 
+ type CharacterExpressionId = (typeof CHARACTER_EXPRESSION_OPTIONS)[number]['id'];
+ 
+-const DEFAULT_CHARACTER_EXPRESSION_IDS: CharacterExpressionId[] = ['joy', 'anger', 'sadness', 'delight'];
++const DEFAULT_CHARACTER_EXPRESSION_IDS: CharacterExpressionId[] = CHARACTER_EXPRESSION_OPTIONS.map((item) => item.id);
++const MAX_PERSISTED_IMAGE_BYTES = 512 * 1024;
++const MAX_WORKSPACE_PERSISTED_BYTES = 3 * 1024 * 1024;
++
++type StageRun = {
++  generationJobId: string;
++  token: number;
++  controller: AbortController;
++  revision: boolean;
++};
++
++const STAGE_RUN_ORDER: ProductionStageId[] = ['script', 'character', 'scene', 'storyboard', 'video'];
+ 
+ const CHARACTER_REFERENCE_STRATEGIES = [
+   {
+@@ -798,6 +819,10 @@ function safeParseJson<T>(content: string | undefined, fallback: T): T {
+   }
+ }
+ 
++function utf8ByteLength(value: string): number {
++  return new TextEncoder().encode(value).length;
++}
++
+ function fileRevision(workspace: WorkspaceSnapshot | null, path: string) {
+   const file = getFile(workspace, path);
+   if (!file) return 0;
+@@ -1413,6 +1438,8 @@ export default function Page() {
+   const [roleDesignNotice, setRoleDesignNotice] = useState('');
+   const videoPollTimerRef = useRef<number | null>(null);
+   const stageGenerationJobRef = useRef(new Map<ProductionStageId, string>());
++  const stageRunRef = useRef(new Map<ProductionStageId, StageRun>());
++  const stageRunTokenRef = useRef(new Map<ProductionStageId, number>());
+   const activeStageGenerationCountRef = useRef(0);
+   const confirmationInFlightRef = useRef(new Set<string>());
+   const demoWorkspaceId = typeof window === 'undefined' ? null : demoIdFromQuery();
+@@ -1445,8 +1472,12 @@ export default function Page() {
+           createdAt: now()
+         }
+       ];
+-      window.localStorage.setItem(demoStorageKey(demoId), JSON.stringify(demoWorkspace));
+-      window.localStorage.setItem(messagesKey, JSON.stringify(demoMessages));
++      try {
++        window.localStorage.setItem(demoStorageKey(demoId), JSON.stringify(demoWorkspace));
++        window.localStorage.setItem(messagesKey, JSON.stringify(demoMessages));
++      } catch (err) {
++        setError('工作区未持久化/请换小图。');
++      }
+       setWorkspace(demoWorkspace);
+       setWorkflow(demoWorkspace.activeWorkflow);
+       setVideoSpec(defaultVideoSpec);
+@@ -1506,8 +1537,12 @@ export default function Page() {
+     if (!workspace) return;
+     const demoId = demoIdFromQuery();
+     const storageKey = demoId ? demoStorageKey(demoId) : workspaceStorageKey(workspace.projectId);
+-    window.localStorage.setItem(storageKey, JSON.stringify(workspace));
+-    if (!demoId) window.localStorage.setItem(activeWorkspaceProjectKey, workspace.projectId);
++    try {
++      window.localStorage.setItem(storageKey, JSON.stringify(workspace));
++      if (!demoId) window.localStorage.setItem(activeWorkspaceProjectKey, workspace.projectId);
++    } catch (err) {
++      setError('工作区未持久化/请换小图。');
++    }
+   }, [workspace]);
+ 
+   useEffect(() => {
+@@ -1569,7 +1604,7 @@ export default function Page() {
+     [proposedWorkspace, hasWorkspaceAssets]
+   );
+   const scenes = useMemo(
+-    () => (hasWorkspaceAssets ? sceneAssets(proposedWorkspace) : []),
++    () => (hasWorkspaceAssets ? productionScenesFromWorkspace(proposedWorkspace) : []),
+     [proposedWorkspace, hasWorkspaceAssets]
+   );
+   const publishCopy = useMemo(() => parseJsonFile<PublishCopy>(proposedWorkspace, 'publish_copy.json', {}), [proposedWorkspace]);
+@@ -1608,6 +1643,188 @@ export default function Page() {
+     duration: scene.durationSeconds || Math.ceil(videoDuration(videoSpec))
+   }));
+ 
++  function beginStageRun(stage: ProductionStageId, generationJobId: string, revision = false): StageRun {
++    stageRunRef.current.get(stage)?.controller.abort();
++    const token = (stageRunTokenRef.current.get(stage) || 0) + 1;
++    const run: StageRun = { generationJobId, token, controller: new AbortController(), revision };
++    stageRunTokenRef.current.set(stage, token);
++    stageRunRef.current.set(stage, run);
++    stageGenerationJobRef.current.set(stage, generationJobId);
++    return run;
++  }
++
++  function isCurrentStageRun(stage: ProductionStageId, generationJobId: string, token: number): boolean {
++    const run = stageRunRef.current.get(stage);
++    return Boolean(
++      run && !run.controller.signal.aborted && run.generationJobId === generationJobId && run.token === token &&
++      stageGenerationJobRef.current.get(stage) === generationJobId
++    );
++  }
++
++  function abortStageRunsFrom(stage: ProductionStageId) {
++    const start = STAGE_RUN_ORDER.indexOf(stage);
++    for (const candidate of STAGE_RUN_ORDER.slice(Math.max(0, start))) {
++      stageRunRef.current.get(candidate)?.controller.abort();
++      stageRunTokenRef.current.set(candidate, (stageRunTokenRef.current.get(candidate) || 0) + 1);
++      stageGenerationJobRef.current.delete(candidate);
++    }
++  }
++
++  function failCurrentStageRun(stage: ProductionStageId, run: StageRun, message: string) {
++    setWorkspace((current) => {
++      if (!current || !isCurrentStageRun(stage, run.generationJobId, run.token)) return current;
++      return writeProductionFlow(
++        current,
++        failStageGeneration(productionFlowFromWorkspace(current), stage, run.generationJobId, message)
++      );
++    });
++  }
++
++  function beginManualStageRun(stage: 'character' | 'scene'): StageRun | null {
++    if (!workspace) return null;
++    abortStageRunsFrom(stage);
++    const generationJobId = uid(`${stage}-manual`);
++    const run = beginStageRun(stage, generationJobId);
++    setWorkspace((current) => {
++      if (!current || !isCurrentStageRun(stage, generationJobId, run.token)) return current;
++      try {
++        const flow = productionFlowFromWorkspace(current);
++        const sourceVersions = sourceVersionsForStage(current, stage);
++        return writeProductionFlow(current, beginStageGeneration(flow, stage, generationJobId, sourceVersions));
++      } catch (err) {
++        run.controller.abort();
++        setError(err instanceof Error ? err.message : `${studioStageName(stage)}草稿修改失败`);
++        return current;
++      }
++    });
++    return run;
++  }
++
++  function fitsWorkspacePersistence(workspace: WorkspaceSnapshot): boolean {
++    return utf8ByteLength(JSON.stringify(workspace)) <= MAX_WORKSPACE_PERSISTED_BYTES;
++  }
++
++  function canPersistUploadedDataUrl(imageUrl: string): boolean {
++    return Boolean(workspace) && utf8ByteLength(JSON.stringify(workspace)) + utf8ByteLength(imageUrl) * 2 <= MAX_WORKSPACE_PERSISTED_BYTES;
++  }
++
++  async function renderStageImage(job: StageImageJob, signal?: AbortSignal): Promise<string> {
++    const response = await fetch('/api/image/render', {
++      method: 'POST',
++      headers: { 'content-type': 'application/json' },
++      signal,
++      body: JSON.stringify({ prompt: job.prompt, negativePrompt: job.negativePrompt })
++    });
++    const data = await response.json().catch(() => ({})) as ImageRenderApiResponse;
++    if (!response.ok) throw new Error(data.error || `图片服务请求失败（${response.status}）`);
++    if (data.error) throw new Error(data.error);
++    if (!data.imageUrl?.trim()) throw new Error('图片服务没有返回 imageUrl');
++    return data.imageUrl;
++  }
++
++  function persistSettledStageImages(
++    stage: 'character' | 'scene',
++    jobs: StageImageJob[],
++    results: PromiseSettledResult<string>[],
++    run: StageRun
++  ) {
++    if (!isCurrentStageRun(stage, run.generationJobId, run.token)) return;
++    const fulfilled = results.flatMap((result, index) =>
++      result.status === 'fulfilled' && isCurrentStageRun(stage, run.generationJobId, run.token)
++        ? [{ ...jobs[index], imageUrl: result.value }]
++        : []
++    );
++    if (!fulfilled.length) return;
++
++    setWorkspace((current) => {
++      if (!current || !isCurrentStageRun(stage, run.generationJobId, run.token)) return current;
++      const flow = productionFlowFromWorkspace(current);
++      if (flow.stages[stage].generationJobId !== run.generationJobId) return current;
++      const proposed = applyPatchesForPreview(current, readPendingPatches(current)) || current;
++      const next = fulfilled.reduce((draft, result) => applyStageImageResult(draft, result), proposed);
++      const filePath = stage === 'character' ? 'characters.json' : 'scenes.json';
++      const after = getFile(next, filePath)?.content;
++      if (!after || after === getFile(proposed, filePath)?.content) return current;
++      const patch: PatchOperation = {
++        id: uid('patch'),
++        filePath,
++        summary: stage === 'character' ? '写入已生成角色图草稿' : '写入已生成场景图草稿',
++        before: getFile(current, filePath)?.content || '',
++        after,
++        riskLevel: 'low',
++        requiresApproval: true
++      };
++      return appendPendingPatches(current, [patch]);
++    });
++  }
++
++  function finishStageImageGeneration(
++    stage: 'character' | 'scene',
++    run: StageRun,
++    failures: string[]
++  ) {
++    setWorkspace((current) => {
++      if (!current || !isCurrentStageRun(stage, run.generationJobId, run.token)) return current;
++      const flow = productionFlowFromWorkspace(current);
++      const record = flow.stages[stage];
++      if (record.generationJobId !== run.generationJobId || record.status !== 'generating') return current;
++      const proposed = applyPatchesForPreview(current, readPendingPatches(current)) || current;
++      const missing = stage === 'character' ? missingCharacterImageJobs(proposed) : missingSceneImageJobs(proposed);
++      if (failures.length || missing.length) {
++        const message = failures[0] || validateStageAssets(stage, proposed)[0] || '仍有必需图片尚未生成';
++        return writeProductionFlow(current, failStageGeneration(flow, stage, run.generationJobId, message));
++      }
++      if (run.revision) {
++        return writeProductionFlow(current, markStageDraft(flow, {
++          stage, generationJobId: run.generationJobId, sourceVersions: record.sourceVersions
++        }));
++      }
++      const completion = completeStageGeneration(flow, stage, run.generationJobId, record.sourceVersions);
++      return completion.accepted ? writeProductionFlow(current, completion.flow) : current;
++    });
++  }
++
++  async function generateMissingStageImages(
++    stage: 'character' | 'scene',
++    draftWorkspace: WorkspaceSnapshot,
++    run: StageRun
++  ) {
++    if (!isCurrentStageRun(stage, run.generationJobId, run.token)) return;
++    if (health && health.provider.image?.configured === false) {
++      finishStageImageGeneration(stage, run, ['图片模型尚未配置，请先在模型设置中填写图片模型连接。']);
++      return;
++    }
++    const jobs = stage === 'character' ? missingCharacterImageJobs(draftWorkspace) : missingSceneImageJobs(draftWorkspace);
++    if (!jobs.length) {
++      const issues = validateStageAssets(stage, draftWorkspace);
++      finishStageImageGeneration(stage, run, issues);
++      return;
++    }
++
++    const failures: string[] = [];
++    for (let index = 0; index < jobs.length; index += 2) {
++      if (!isCurrentStageRun(stage, run.generationJobId, run.token)) return;
++      const batch = jobs.slice(index, index + 2);
++      const results = await Promise.allSettled(batch.map((job) => renderStageImage(job, run.controller.signal)));
++      if (!isCurrentStageRun(stage, run.generationJobId, run.token)) return;
++      persistSettledStageImages(stage, batch, results, run);
++      results.forEach((result) => {
++        if (result.status === 'rejected') {
++          failures.push(characterImageErrorText(result.reason instanceof Error ? result.reason.message : String(result.reason)));
++        }
++      });
++    }
++    finishStageImageGeneration(stage, run, failures);
++  }
++
++  async function generateMissingCharacterImages(workspace: WorkspaceSnapshot, run: StageRun) {
++    await generateMissingStageImages('character', workspace, run);
++  }
++
++  async function generateMissingSceneImages(workspace: WorkspaceSnapshot, run: StageRun) {
++    await generateMissingStageImages('scene', workspace, run);
++  }
++
+   async function requestStageDraft(
+     stage: ProductionStageId,
+     baseWorkspace: WorkspaceSnapshot,
+@@ -1630,7 +1847,7 @@ export default function Page() {
+       return;
+     }
+ 
+-    stageGenerationJobRef.current.set(stage, generationJobId);
++    const run = beginStageRun(stage, generationJobId, revision);
+     setWorkspace(generationWorkspace);
+     activeStageGenerationCountRef.current += 1;
+     setLoading(true);
+@@ -1642,6 +1859,7 @@ export default function Page() {
+       const response = await fetch('/api/agent/run', {
+         method: 'POST',
+         headers: { 'content-type': 'application/json' },
++        signal: run.controller.signal,
+         body: JSON.stringify({
+           instruction: [requestText, stageGenerationInstruction(stage, buildSpecInstruction(videoSpec))].filter(Boolean).join('\n\n'),
+           workspace: baseWorkspace,
+@@ -1655,10 +1873,17 @@ export default function Page() {
+       const result = await response.json() as AgentRunResponse & { error?: string };
+       if (!response.ok) throw new Error(result.error || `${studioStageName(stage)}生成失败`);
+       const scopedPatches = filterStagePatches(stage, result.patchOperations);
+-      if (stageGenerationJobRef.current.get(stage) !== generationJobId) return;
++      if (!isCurrentStageRun(stage, generationJobId, run.token)) return;
++      const imageStage = stage === 'character' || stage === 'scene';
++      const textDraftWorkspace = appendPendingPatches(generationWorkspace, scopedPatches);
+       setWorkspace((current) => {
+         if (!current) return current;
+-        if (stageGenerationJobRef.current.get(stage) !== generationJobId) return current;
++        if (!isCurrentStageRun(stage, generationJobId, run.token)) return current;
++        if (imageStage) {
++          const flow = productionFlowFromWorkspace(current);
++          if (flow.stages[stage].generationJobId !== generationJobId) return current;
++          return appendPendingPatches(current, scopedPatches);
++        }
+         const flow = productionFlowFromWorkspace(current);
+         const completion = completeStageGeneration(flow, stage, generationJobId, sourceVersions);
+         if (!completion.accepted) return current;
+@@ -1669,19 +1894,19 @@ export default function Page() {
+       });
+       setLastRun({ ...result, patchOperations: scopedPatches });
+       setMessages((prev) => [...prev, { id: uid('msg'), role: 'assistant', content: result.assistantMessage, createdAt: now() }]);
++      if (imageStage) {
++        const draft = applyPatchesForPreview(textDraftWorkspace, readPendingPatches(textDraftWorkspace)) || textDraftWorkspace;
++        if (stage === 'character') await generateMissingCharacterImages(draft, run);
++        else await generateMissingSceneImages(draft, run);
++      }
+       focusStudioStage(stage);
+       const firstPatch = scopedPatches[0];
+       if (firstPatch) setSelectedPatchId(firstPatch.id);
+     } catch (err) {
+-      if (stageGenerationJobRef.current.get(stage) !== generationJobId) return;
++      if (!isCurrentStageRun(stage, generationJobId, run.token)) return;
++      if (run.controller.signal.aborted) return;
+       const message = err instanceof Error ? err.message : `${studioStageName(stage)}生成失败`;
+-      setWorkspace((current) => {
+-        if (!current || stageGenerationJobRef.current.get(stage) !== generationJobId) return current;
+-        return writeProductionFlow(
+-          current,
+-          failStageGeneration(productionFlowFromWorkspace(current), stage, generationJobId, message)
+-        );
+-      });
++      failCurrentStageRun(stage, run, message);
+       setError(message);
+       setMessages((prev) => [...prev, { id: uid('msg'), role: 'system', content: `请求失败：${message}`, createdAt: now() }]);
+     } finally {
+@@ -1976,10 +2201,30 @@ export default function Page() {
+     '品牌记忆会记录语气、禁用词、定位和历史偏好；审批写入后在这里沉淀。';
+ 
+   const committedPrompts = parseJsonFile<AssetPrompts>(workspace, 'asset_prompts.json', {});
+-  const generatedCharacterAssets = characterAssetsFromPrompts(assetPrompts);
+-  const committedCharacterAssets = characterAssetsFromPrompts(committedPrompts);
+-  const visibleCharacterAssets = generatedCharacterAssets.length ? generatedCharacterAssets : committedCharacterAssets;
+-  const stagedCharacterReferences = characterReferenceVariantsFromPrompts(assetPrompts);
++  const characterAssetIssues = proposedWorkspace ? validateStageAssets('character', proposedWorkspace) : ['角色资产文件尚未生成'];
++  const sceneAssetIssues = proposedWorkspace ? validateStageAssets('scene', proposedWorkspace) : ['场景资产文件尚未生成'];
++  const visibleCharacterAssets = charactersFromWorkspace(proposedWorkspace).map((character: CharacterAsset) => ({
++    id: character.id,
++    name: character.name,
++    role: character.role,
++    description: character.description,
++    consistency: character.consistencyPrompt,
++    source: 'characters.json',
++    negativePrompt: character.negativePrompt,
++    faceAnchorVariantId: character.faceAnchorVariantId,
++    expressionIds: character.expressionIds,
++    referenceStrategy: character.referenceStrategy,
++    variants: character.variants.map((variant) => ({
++      id: variant.id as CharacterReferenceVariant['id'],
++      label: variant.label,
++      ageLabel: variant.ageLabel,
++      wardrobe: variant.wardrobe,
++      imageUrl: variant.primaryImageUrl,
++      sceneIds: [],
++      multiViewImageUrl: variant.multiViewImageUrl,
++      expressionSheetImageUrl: variant.expressionSheetImageUrl
++    }))
++  }));
+   const fullExpressionPalette = CHARACTER_EXPRESSION_OPTIONS.map((option) => option.label).join('、');
+   const handoffReady =
+     Boolean(getFile(workspace, 'asset_prompts.json')) && pendingPatches.length === 0 && complianceStatus !== 'blocked';
+@@ -2024,14 +2269,14 @@ export default function Page() {
+   const sceneAsset = assets.find((asset) => asset.type === 'scene') || assets.find((asset) => asset.filePath === 'scenes.json');
+   const timelineAsset = assets.find((asset) => asset.filePath === 'timeline.json' || asset.type === 'timeline');
+   const characterPackage = assetPrompts.characterConsistency || committedPrompts.characterConsistency;
+-  const hasCharacterPackage = Boolean(visibleCharacterAssets.length || characterPackage?.primarySubject || characterPackage?.consistencyPrompt);
++  const hasCharacterPackage = Boolean(visibleCharacterAssets.length);
+   const studioStageLabel = studioStages.find((stage) => stage.id === activeTab)?.label || '总览';
+   const activeStageCamera = stageCameras[activeTab];
+   const cameraStyle = stageCameraStyle(activeStageCamera);
+   const patchCountFor = (paths: string[]) => pendingPatches.filter((patch) => paths.includes(patch.filePath)).length;
+   const missionPatchCount = patchCountFor(['brief.json', 'campaign_goal.json', 'profile.json']);
+   const scriptPatchCount = patchCountFor(['script.md']);
+-  const characterPatchCount = patchCountFor(['asset_prompts.json', 'asset_library.json']);
++  const characterPatchCount = patchCountFor(['characters.json', 'asset_library.json']);
+   const scenePatchCount = patchCountFor(['scenes.json']);
+   const storyboardPatchCount = patchCountFor(['storyboard.json', 'timeline.json']);
+   const videoPatchCount = patchCountFor(['asset_prompts.json', 'timeline.json']);
+@@ -2043,7 +2288,7 @@ export default function Page() {
+   const videoNotice = dependencyNotice('video', proposedWorkspace, pendingPatches);
+ 
+   function selectedExpressionIdsFor(characterId: string) {
+-    return roleExpressionDrafts[characterId] || DEFAULT_CHARACTER_EXPRESSION_IDS;
++    return roleExpressionDrafts[characterId] || visibleCharacterAssets.find((character) => character.id === characterId)?.expressionIds || DEFAULT_CHARACTER_EXPRESSION_IDS;
+   }
+ 
+   function selectedExpressionOptionsFor(characterId: string) {
+@@ -2052,7 +2297,7 @@ export default function Page() {
+   }
+ 
+   function selectedReferenceStrategyFor(characterId: string) {
+-    const strategyId = roleReferenceStrategyDrafts[characterId] || 'face_id';
++    const strategyId = roleReferenceStrategyDrafts[characterId] || visibleCharacterAssets.find((character) => character.id === characterId)?.referenceStrategy || 'face_id';
+     return CHARACTER_REFERENCE_STRATEGIES.find((strategy) => strategy.id === strategyId) || CHARACTER_REFERENCE_STRATEGIES[0];
+   }
+ 
+@@ -2061,8 +2306,7 @@ export default function Page() {
+   }
+ 
+   function characterVariantsFor(character: CharacterAssetCard, index?: number): CharacterReferenceVariant[] {
+-    const primaryCharacter = index === 0 || character.id === visibleCharacterAssets[0]?.id || character.role.includes('主角');
+-    if (primaryCharacter && stagedCharacterReferences.length) return stagedCharacterReferences;
++    if (character.variants?.length) return character.variants;
+     return [{ ...BASE_CHARACTER_VARIANT, sceneIds: [] }];
+   }
+ 
+@@ -2079,15 +2323,19 @@ export default function Page() {
+   ): CharacterDesignRender {
+     const draft = roleDesignDrafts[characterDesignKey(character.id, variant.id, outputKind)];
+     if (draft) return draft;
+-    if (outputKind === 'portrait' && variant.imageUrl) {
+-      return { imageUrl: variant.imageUrl, status: 'ready', source: 'existing' };
+-    }
++    const storedVariant = variant as CharacterReferenceVariant & { multiViewImageUrl?: string; expressionSheetImageUrl?: string };
++    const imageUrl = outputKind === 'portrait'
++      ? variant.imageUrl
++      : outputKind === 'multi_view'
++        ? storedVariant.multiViewImageUrl || ''
++        : storedVariant.expressionSheetImageUrl || '';
++    if (imageUrl) return { imageUrl, status: 'ready', source: 'existing' };
+     return { imageUrl: '', status: 'idle' };
+   }
+ 
+   function faceAnchorVariantFor(character: CharacterAssetCard, index?: number) {
+     const variants = characterVariantsFor(character, index);
+-    const selectedId = roleFaceAnchorDrafts[character.id];
++    const selectedId = roleFaceAnchorDrafts[character.id] || character.faceAnchorVariantId;
+     return variants.find((variant) => variant.id === selectedId) || variants.find((variant) => variant.imageUrl) || variants[0];
+   }
+ 
+@@ -2119,12 +2367,91 @@ export default function Page() {
+     setRoleDesignDrafts((prev) => ({ ...prev, [key]: next }));
+   }
+ 
++  function persistManualStageImage(
++    result: StageImageJob & { imageUrl: string },
++    summary: string,
++    run: StageRun | null = null
++  ) {
++    if (!workspace) return;
++    const activeRun = run || beginManualStageRun(result.stage);
++    if (!activeRun) return;
++    setWorkspace((current) => {
++      if (!current) return current;
++      if (!isCurrentStageRun(result.stage, activeRun.generationJobId, activeRun.token)) return current;
++      const flow = productionFlowFromWorkspace(current);
++      const record = flow.stages[result.stage];
++      if (record.status !== 'generating' || record.generationJobId !== activeRun.generationJobId) return current;
++      const proposed = applyPatchesForPreview(current, readPendingPatches(current)) || current;
++      const draft = applyStageImageResult(proposed, result);
++      const filePath = result.stage === 'character' ? 'characters.json' : 'scenes.json';
++      const after = getFile(draft, filePath)?.content;
++      if (!after || after === getFile(proposed, filePath)?.content) return current;
++      const patch: PatchOperation = {
++        id: uid('patch'),
++        filePath,
++        summary,
++        before: getFile(current, filePath)?.content || '',
++        after,
++        riskLevel: 'low',
++        requiresApproval: true
++      };
++      const withPatch = appendPendingPatches(current, [patch]);
++      const finalized = writeProductionFlow(withPatch, markStageDraft(flow, {
++        stage: result.stage,
++        generationJobId: activeRun.generationJobId,
++        sourceVersions: record.sourceVersions
++      }));
++      if (!fitsWorkspacePersistence(finalized)) {
++        setError('工作区未持久化/请换小图。');
++        return current;
++      }
++      return finalized;
++    });
++  }
++
++  function persistCharacterMetadata(characterId: string, change: Record<string, unknown>, summary: string) {
++    const run = beginManualStageRun('character');
++    if (!run) return;
++    setWorkspace((current) => {
++      if (!current || !isCurrentStageRun('character', run.generationJobId, run.token)) return current;
++      const flow = productionFlowFromWorkspace(current);
++      const record = flow.stages.character;
++      if (record.status !== 'generating' || record.generationJobId !== run.generationJobId) return current;
++      const proposed = applyPatchesForPreview(current, readPendingPatches(current)) || current;
++      const before = getFile(current, 'characters.json')?.content || '';
++      const source = safeParseJson<{ characters?: Array<Record<string, unknown>> }>(getFile(proposed, 'characters.json')?.content || '', {});
++      if (!Array.isArray(source.characters)) return current;
++      let changed = false;
++      const characters = source.characters.map((character) => {
++        if (character.id !== characterId) return character;
++        changed = true;
++        return { ...character, ...change };
++      });
++      if (!changed) return current;
++      const after = JSON.stringify({ ...source, characters }, null, 2);
++      if (after === getFile(proposed, 'characters.json')?.content) return current;
++      const withPatch = appendPendingPatches(current, [{
++        id: uid('patch'), filePath: 'characters.json', summary, before, after, riskLevel: 'low', requiresApproval: true
++      }]);
++      const next = writeProductionFlow(withPatch, markStageDraft(flow, {
++        stage: 'character', generationJobId: run.generationJobId, sourceVersions: record.sourceVersions
++      }));
++      if (!fitsWorkspacePersistence(next)) {
++        setError('工作区未持久化/请换小图。');
++        return current;
++      }
++      return next;
++    });
++  }
++
+   async function regenerateCharacterDesign(
+     character: CharacterAssetCard,
+     variant: CharacterReferenceVariant,
+     outputKind: CharacterDesignOutputKind = 'portrait',
+     characterIndex?: number
+   ) {
++    const run = beginManualStageRun('character');
++    if (!run) return;
+     const current = characterDesignRenderFor(character, variant, outputKind);
+     const portrait = characterDesignRenderFor(character, variant, 'portrait');
+     const anchorVariant = faceAnchorVariantFor(character, characterIndex);
+@@ -2150,6 +2477,7 @@ export default function Page() {
+       const res = await fetch('/api/image/render', {
+         method: 'POST',
+         headers: { 'content-type': 'application/json' },
++        signal: run.controller.signal,
+         body: JSON.stringify({
+           prompt: buildCharacterDesignPrompt({
+             characterName: character.name,
+@@ -2162,8 +2490,8 @@ export default function Page() {
+             adjustment: roleAdjustmentDrafts[character.id],
+             outputKind
+           }),
+-          images: referenceImages,
+-          size: outputKind === 'multi_view' ? '1024x768' : '768x1024'
++          negativePrompt: character.negativePrompt || '',
++          images: referenceImages
+         })
+       });
+       const data = (await res.json()) as ImageRenderApiResponse;
+@@ -2177,8 +2505,15 @@ export default function Page() {
+       if (outputKind === 'portrait' && !roleFaceAnchorDrafts[character.id]) {
+         setRoleFaceAnchorDrafts((prev) => ({ ...prev, [character.id]: variant.id }));
+       }
++      if (variant.id !== 'base') {
++        persistManualStageImage({
++          stage: 'character', assetId: character.id, variantId: variant.id, kind: outputKind,
++          prompt: '', negativePrompt: character.negativePrompt || '', imageUrl: data.imageUrl
++        }, `写入「${character.name} · ${variant.label}」角色图草稿`, run);
++      }
+       setRoleDesignNotice(`已生成「${character.name} · ${variant.label}」角色资产。确认后再应用到视频任务。`);
+     } catch (err) {
++      if (run.controller.signal.aborted || !isCurrentStageRun('character', run.generationJobId, run.token)) return;
+       const message = characterImageErrorText(err instanceof Error ? err.message : '角色图生成失败');
+       updateCharacterDesignRender(character.id, variant.id, outputKind, {
+         imageUrl: current.imageUrl,
+@@ -2186,6 +2521,7 @@ export default function Page() {
+         error: message,
+         source: current.source
+       });
++      failCurrentStageRun('character', run, message);
+       setRoleDesignNotice(`生成失败：${message}`);
+     }
+   }
+@@ -2196,19 +2532,122 @@ export default function Page() {
+       setRoleDesignNotice('替换失败：请选择图片文件。');
+       return;
+     }
++    if (file.size <= 0 || file.size > MAX_PERSISTED_IMAGE_BYTES) {
++      setRoleDesignNotice(`替换失败：图片需大于 0 且不超过 ${MAX_PERSISTED_IMAGE_BYTES / 1024 / 1024}MB。`);
++      return;
++    }
++    const run = beginManualStageRun('character');
++    if (!run) return;
+     const reader = new FileReader();
+     reader.onload = () => {
+       const imageUrl = typeof reader.result === 'string' ? reader.result : '';
+-      if (!imageUrl) return;
++      if (!imageUrl) {
++        const message = '替换失败：图片读取失败。';
++        failCurrentStageRun('character', run, message);
++        setRoleDesignNotice(message);
++        return;
++      }
++      if (!isCurrentStageRun('character', run.generationJobId, run.token)) return;
++      if (!canPersistUploadedDataUrl(imageUrl)) {
++        const message = '工作区未持久化/请换小图。';
++        failCurrentStageRun('character', run, message);
++        setRoleDesignNotice(message);
++        return;
++      }
+       updateCharacterDesignRender(character.id, variant.id, 'portrait', {
+         imageUrl,
+         status: 'ready',
+         source: 'uploaded'
+       });
+       setRoleDesignPreviewKinds((prev) => ({ ...prev, [character.id]: 'portrait' }));
++      if (variant.id !== 'base') {
++        persistManualStageImage({
++          stage: 'character', assetId: character.id, variantId: variant.id, kind: 'portrait',
++          prompt: '', negativePrompt: character.negativePrompt || '', imageUrl
++        }, `替换「${character.name} · ${variant.label}」角色主图草稿`, run);
++      }
+       setRoleDesignNotice(`已替换「${character.name} · ${variant.label}」角色主图，尚未应用到视频任务。`);
+     };
+-    reader.onerror = () => setRoleDesignNotice('替换失败：图片读取失败。');
++    reader.onerror = () => {
++      const message = '替换失败：图片读取失败。';
++      failCurrentStageRun('character', run, message);
++      setRoleDesignNotice(message);
++    };
++    reader.readAsDataURL(file);
++  }
++
++  function sceneImageJob(sceneId: string): StageImageJob | null {
++    const source = safeParseJson<{ scenes?: Array<Record<string, unknown>> }>(getFile(proposedWorkspace, 'scenes.json')?.content || '', {});
++    const scene = source.scenes?.find((item) => item.id === sceneId);
++    if (!scene) return null;
++    const text = (value: unknown) => typeof value === 'string' ? value.trim() : '';
++    const list = (value: unknown) => Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && Boolean(item.trim())).join('、') : '';
++    const prompt = [
++      text(scene.mainImagePrompt) || text(scene.prompt) || text(scene.visual),
++      `地点：${text(scene.location)}。时间：${text(scene.timeOfDay)}。光线：${text(scene.lighting)}。色彩：${text(scene.palette)}。出场角色：${list(scene.characterIds)}。`
++    ].filter(Boolean).join('\n');
++    return prompt ? { stage: 'scene', assetId: sceneId, prompt, negativePrompt: text(scene.negativePrompt) } : null;
++  }
++
++  async function regenerateSceneImage(sceneId: string) {
++    const job = sceneImageJob(sceneId);
++    if (!job) {
++      setError('场景缺少可生成的主图提示词。');
++      return;
++    }
++    const run = beginManualStageRun('scene');
++    if (!run) return;
++    try {
++      const imageUrl = await renderStageImage(job, run.controller.signal);
++      if (!isCurrentStageRun('scene', run.generationJobId, run.token)) return;
++      persistManualStageImage({ ...job, imageUrl }, '写入重新生成的场景图草稿', run);
++    } catch (err) {
++      if (run.controller.signal.aborted || !isCurrentStageRun('scene', run.generationJobId, run.token)) return;
++      const message = characterImageErrorText(err instanceof Error ? err.message : '场景图生成失败');
++      failCurrentStageRun('scene', run, message);
++      setError(message);
++    }
++  }
++
++  function replaceSceneImageFile(sceneId: string, file?: File) {
++    if (!file || !file.type.startsWith('image/')) {
++      setError('替换失败：请选择图片文件。');
++      return;
++    }
++    if (file.size <= 0 || file.size > MAX_PERSISTED_IMAGE_BYTES) {
++      setError(`替换失败：图片需大于 0 且不超过 ${MAX_PERSISTED_IMAGE_BYTES / 1024 / 1024}MB。`);
++      return;
++    }
++    const run = beginManualStageRun('scene');
++    if (!run) return;
++    const reader = new FileReader();
++    reader.onload = () => {
++      const imageUrl = typeof reader.result === 'string' ? reader.result : '';
++      if (!imageUrl) {
++        const message = '替换失败：图片读取失败。';
++        failCurrentStageRun('scene', run, message);
++        setError(message);
++        return;
++      }
++      if (!isCurrentStageRun('scene', run.generationJobId, run.token)) return;
++      if (!canPersistUploadedDataUrl(imageUrl)) {
++        const message = '工作区未持久化/请换小图。';
++        failCurrentStageRun('scene', run, message);
++        setError(message);
++        return;
++      }
++      const job = sceneImageJob(sceneId);
++      if (!job) {
++        setError('场景缺少可写入的草稿。');
++        return;
++      }
++      persistManualStageImage({ ...job, imageUrl }, '替换场景图草稿', run);
++    };
++    reader.onerror = () => {
++      const message = '替换失败：图片读取失败。';
++      failCurrentStageRun('scene', run, message);
++      setError(message);
++    };
+     reader.readAsDataURL(file);
+   }
+ 
+@@ -2250,37 +2689,14 @@ export default function Page() {
+   }
+ 
+   function proposeCharacterReferencePatch(character: CharacterAssetCard, variant: CharacterReferenceVariant, imageUrl: string) {
+-    if (!workspace || !imageUrl) return;
+-    const sourceWorkspace = proposedWorkspace || workspace;
+-    const before = getFile(sourceWorkspace, 'asset_prompts.json')?.content || JSON.stringify(assetPrompts, null, 2);
+-    const current = safeParseJson<AssetPrompts>(before, {});
+-    const next =
+-      variant.id === 'base'
+-        ? {
+-            ...current,
+-            characters: (current.characters || []).map((entry) =>
+-              entry.id === character.id || entry.name === character.name
+-                ? { ...entry, referenceImageUrl: imageUrl, referenceImages: undefined }
+-                : entry
+-            ),
+-            prompts: (current.prompts || []).map((entry) => ({ ...entry, referenceImageUrl: imageUrl, referenceImages: undefined })),
+-            renderQueue: (current.renderQueue || []).map((entry) => ({ ...entry, referenceImageUrl: imageUrl, referenceImages: undefined, status: 'ready_with_reference' }))
+-          }
+-        : replaceCharacterStageReference(current, variant.id, imageUrl);
+-    const summary = `将「${character.name} · ${variant.label}」角色图应用到对应视频任务`;
+-    const patch: PatchOperation = {
+-      id: uid('patch'),
+-      filePath: 'asset_prompts.json',
+-      summary,
+-      before,
+-      after: JSON.stringify(next, null, 2),
+-      riskLevel: 'low',
+-      requiresApproval: true
+-    };
+-    setWorkspace((current) => current ? appendPendingPatches(current, [patch]) : current);
+-    setSelectedPatchId(patch.id);
++    if (!imageUrl || variant.id === 'base') return;
++    const summary = `写入「${character.name} · ${variant.label}」角色主图草稿`;
++    persistManualStageImage({
++      stage: 'character', assetId: character.id, variantId: variant.id, kind: 'portrait',
++      prompt: '', negativePrompt: character.negativePrompt || '', imageUrl
++    }, summary);
+     setSelectedNodeId('node_character');
+-    setRoleDesignNotice(`已生成待审 Patch：${summary}。审批后才会替换视频参考图。`);
++    setRoleDesignNotice(`已生成待审 Patch：${summary}。确认角色阶段后才会进入场景。`);
+   }
+ 
+   function proposeCharacterLibraryPatch(
+@@ -2306,7 +2722,7 @@ export default function Page() {
+           id: `lib_character_${Date.now()}`,
+           type: 'character',
+           title,
+-          sourceFile: 'asset_prompts.json',
++          sourceFile: 'characters.json',
+           summary: `已生成角色资产：${imageUrl}`,
+           scope: variant.id,
+           createdAt: now(),
+@@ -2690,6 +3106,29 @@ export default function Page() {
+     if (!workspace) return;
+     const stage: ProductionStageId = node.stage === 'overview' ? 'script' : node.stage;
+     const flow = productionFlowFromWorkspace(workspace);
++    if ((stage === 'character' || stage === 'scene') && flow.stages[stage].status === 'failed') {
++      const generationJobId = uid(`${stage}-image-retry`);
++      const sourceVersions = flow.stages[stage].sourceVersions;
++      try {
++        const retryWorkspace = writeProductionFlow(workspace, beginStageGeneration(flow, stage, generationJobId, sourceVersions));
++        const run = beginStageRun(stage, generationJobId);
++        setWorkspace(retryWorkspace);
++        activeStageGenerationCountRef.current += 1;
++        setLoading(true);
++        setError('');
++        const draft = applyPatchesForPreview(retryWorkspace, readPendingPatches(retryWorkspace)) || retryWorkspace;
++        void (stage === 'character'
++          ? generateMissingCharacterImages(draft, run)
++          : generateMissingSceneImages(draft, run)
++        ).finally(() => {
++          activeStageGenerationCountRef.current = Math.max(0, activeStageGenerationCountRef.current - 1);
++          setLoading(activeStageGenerationCountRef.current > 0);
++        });
++      } catch (err) {
++        setError(err instanceof Error ? err.message : `${studioStageName(stage)}图片重试失败`);
++      }
++      return;
++    }
+     const revision = flow.stages[stage].status === 'confirmed';
+     void requestStageDraft(stage, workspace, undefined, node.action, messages.slice(-10), revision);
+   }
+@@ -3589,16 +4028,17 @@ export default function Page() {
+                             <span>{character.role}</span>
+                             <strong>{character.name}</strong>
+                             <p>{character.description}</p>
+-                            <button type="button" className="btn primary sm" onClick={() => void confirmProductionStage('character')}>
++                            <button type="button" className="btn primary sm" disabled={characterAssetIssues.length > 0} title={characterAssetIssues[0] || ''} onClick={() => void confirmProductionStage('character')}>
+                               <IconCheck /> 确认角色
+                             </button>
++                            {characterAssetIssues[0] && <small>{characterAssetIssues[0]}</small>}
+                           </article>
+                         ))
+                       ) : (
+                         <article className="character-proof-card empty-proof">
+                           <span>角色</span>
+                           <strong>待生成角色卡</strong>
+-                          <p>角色还没有从剧本中抽取出来。先生成或补齐 asset_prompts.json。</p>
++                          <p>角色还没有从剧本中抽取出来。先生成或补齐 characters.json。</p>
+                           <button type="button" className="btn sm" onClick={() => focusStudioStage('character')}>
+                             <IconUsers /> 查看角色
+                           </button>
+@@ -3751,7 +4191,10 @@ export default function Page() {
+                                       type="button"
+                                       className="btn sm"
+                                       disabled={!portraitRender.imageUrl || faceAnchorVariant.id === activeVariant.id}
+-                                      onClick={() => setRoleFaceAnchorDrafts((prev) => ({ ...prev, [character.id]: activeVariant.id }))}
++                                      onClick={() => {
++                                        setRoleFaceAnchorDrafts((prev) => ({ ...prev, [character.id]: activeVariant.id }));
++                                        persistCharacterMetadata(character.id, { faceAnchorVariantId: activeVariant.id }, `更新「${character.name}」Face ID 年龄锚点`);
++                                      }}
+                                     >
+                                       <IconCamera /> {faceAnchorVariant.id === activeVariant.id ? '当前 Face ID' : '设为 Face ID'}
+                                     </button>
+@@ -3874,7 +4317,10 @@ export default function Page() {
+                                           className={`character-reference-btn ${selectedStrategy.id === strategy.id ? 'active' : ''}`}
+                                           aria-pressed={selectedStrategy.id === strategy.id}
+                                           title={strategy.hint}
+-                                          onClick={() => setRoleReferenceStrategyDrafts((prev) => ({ ...prev, [character.id]: strategy.id }))}
++                                          onClick={() => {
++                                            setRoleReferenceStrategyDrafts((prev) => ({ ...prev, [character.id]: strategy.id }));
++                                            persistCharacterMetadata(character.id, { referenceStrategy: strategy.id }, `更新「${character.name}」参考策略`);
++                                          }}
+                                         >
+                                           {strategy.id === 'face_id' ? <IconCamera /> : strategy.id === 'multi_view' ? <IconLayers /> : <IconWand />}
+                                           <span>{strategy.label}</span>
+@@ -3892,7 +4338,14 @@ export default function Page() {
+                                             className={`character-expression-chip ${active ? 'active' : ''}`}
+                                             aria-pressed={active}
+                                             title={expression.prompt}
+-                                            onClick={() => toggleCharacterExpression(character.id, expression.id)}
++                                            onClick={() => {
++                                              const current = selectedExpressionIdsFor(character.id);
++                                              const next = current.includes(expression.id)
++                                                ? current.filter((id) => id !== expression.id)
++                                                : [...current, expression.id];
++                                              toggleCharacterExpression(character.id, expression.id);
++                                              persistCharacterMetadata(character.id, { expressionIds: next }, `更新「${character.name}」表情范围`);
++                                            }}
+                                           >
+                                             {expression.label}
+                                           </button>
+@@ -3925,7 +4378,7 @@ export default function Page() {
+                                       <button
+                                         type="button"
+                                         className="btn sm"
+-                                        onClick={() => setNodeRevisionText(`我要修改角色「${character.name}」：请只修改 asset_prompts.json 中这个角色的身份、外观、一致性提示词、参考策略和表情要求，不要改动已生成脚本。`)}
++                                        onClick={() => setNodeRevisionText(`我要修改角色「${character.name}」：请只修改 characters.json 中这个角色的身份、外观、一致性提示词、参考策略和表情要求，不要改动已生成脚本。`)}
+                                       >
+                                         <IconWand /> 修改文字设定
+                                       </button>
+@@ -3935,17 +4388,20 @@ export default function Page() {
+                                         disabled={!portraitRender.imageUrl}
+                                         onClick={() => proposeCharacterReferencePatch(character, activeVariant, portraitRender.imageUrl)}
+                                       >
+-                                        <IconGitMerge /> 应用到视频任务
++                                        <IconGitMerge /> 写入角色草稿
+                                       </button>
+                                       <button
+                                         type="button"
+                                         className="btn sm"
++                                        disabled={characterAssetIssues.length > 0}
++                                        title={characterAssetIssues[0] || ''}
+                                         onClick={() => {
+                                           void confirmProductionStage('character');
+                                         }}
+                                       >
+                                         <IconCheck /> 确认并继续场景
+                                       </button>
++                                      {characterAssetIssues[0] && <small className="character-confirm-reason">{characterAssetIssues[0]}</small>}
+                                     </div>
+                                   </section>
+                                 </div>
+@@ -3963,12 +4419,41 @@ export default function Page() {
+ 
+                   {activeTab === 'scene' && (
+                     <div className="studio-scene-grid">
+-                      {scenes.length ? scenes.map((scene) => (
+-                        <button key={scene.id} type="button" className={`scene-tile ${activeScene?.id === scene.id ? 'active' : ''}`} onClick={() => selectScene(scene.id)}>
+-                          <strong>{scene.title}</strong>
+-                          <span>{scene.subtitle || scene.visual}</span>
++                      {scenes.length ? scenes.map((scene) => {
++                        const sceneRecord = safeParseJson<{ scenes?: Array<Record<string, unknown>> }>(getFile(proposedWorkspace, 'scenes.json')?.content || '', {})
++                          .scenes?.find((item) => item.id === scene.id);
++                        const scriptSegment = typeof sceneRecord?.scriptSegment === 'string' ? sceneRecord.scriptSegment : '';
++                        return (
++                          <article key={scene.id} className={`scene-tile ${activeScene?.id === scene.id ? 'active' : ''}`}>
++                            <button type="button" className="scene-tile-main" onClick={() => selectScene(scene.id)}>
++                              {scene.referenceImageUrl ? <img src={scene.referenceImageUrl} alt={`${scene.title} 场景主图`} /> : <div className="scene-image-empty"><IconCamera /><span>待生成场景图</span></div>}
++                              <strong>{scene.title}</strong>
++                              <span>{scene.location} · {scene.timeOfDay}</span>
++                              <small>光线：{scene.lighting} · 色彩：{scene.palette}</small>
++                              <small>出场角色：{scene.characterIds.join('、') || '未标注'}</small>
++                              <p>{scriptSegment || scene.subtitle || scene.visual}</p>
++                            </button>
++                            <div className="scene-tile-actions">
++                              <button type="button" className="btn sm" onClick={() => void regenerateSceneImage(scene.id)}>
++                                <IconRefresh /> 重新生成场景图
++                              </button>
++                              <label className="btn sm">
++                                <IconUpload /> 替换场景图
++                                <input type="file" accept="image/*" onChange={(event) => {
++                                  replaceSceneImageFile(scene.id, event.target.files?.[0]);
++                                  event.target.value = '';
++                                }} />
++                              </label>
++                            </div>
++                          </article>
++                        );
++                      }) : <div className="empty">场景资产会在剧本和角色确认后出现。</div>}
++                      <div className="scene-confirmation">
++                        <button type="button" className="btn primary sm" disabled={sceneAssetIssues.length > 0} title={sceneAssetIssues[0] || ''} onClick={() => void confirmProductionStage('scene')}>
++                          <IconCheck /> 确认场景，继续分镜
+                         </button>
+-                      )) : <div className="empty">场景资产会在剧本和分镜完成后出现。</div>}
++                        {sceneAssetIssues[0] && <small>{sceneAssetIssues[0]}</small>}
++                      </div>
+                     </div>
+                   )}
+ 
+diff --git a/.superpowers/sdd/task-6-before/app/page.model-config-ui.test.cjs b/app/page.model-config-ui.test.cjs
+index 8a10fdf..db6254a 100644
+--- a/.superpowers/sdd/task-6-before/app/page.model-config-ui.test.cjs
++++ b/app/page.model-config-ui.test.cjs
+@@ -203,7 +203,8 @@ test('stage confirmation has an atomic in-flight gate and confirmed repeats are
+ test('late stage responses are rejected before their patches become visible', () => {
+   assert.match(source, /completeStageGeneration\(/);
+   assert.match(source, /const stageGenerationJobRef = useRef\(new Map<ProductionStageId, string>\(\)\)/);
+-  assert.match(source, /stageGenerationJobRef\.current\.get\(stage\) !== generationJobId/);
++  assert.match(source, /function isCurrentStageRun/);
++  assert.match(source, /!isCurrentStageRun\(stage, generationJobId, run\.token\)/);
+   assert.match(source, /if \(!completion\.accepted\) return current/);
+   assert.match(source, /appendPendingPatches\(current, scopedPatches\)/);
+ });
+@@ -229,6 +230,47 @@ test('all visible production confirmation and regeneration controls use stage tr
+   assert.match(source, /selectCanvasNode\(node\);\s+regenerateProductionStage\(node\);/);
+ });
+ 
++test('failed character and scene stages retry only missing image jobs with a new generation job', () => {
++  assert.match(source, /flow\.stages\[stage\]\.status === 'failed'/);
++  assert.match(source, /uid\(`\$\{stage\}-image-retry`\)/);
++  assert.match(source, /const run = beginStageRun\(stage, generationJobId\)/);
++  assert.match(source, /generateMissingCharacterImages\(draft, run\)/);
++  assert.match(source, /generateMissingSceneImages\(draft, run\)/);
++});
++
++test('manual character and scene mutations create re-confirmable revision drafts and invalidate old runs', () => {
++  assert.match(source, /function beginManualStageRun/);
++  assert.match(source, /function abortStageRunsFrom/);
++  assert.match(source, /abortStageRunsFrom\(stage\)/);
++  assert.match(source, /beginStageGeneration\(flow, stage, generationJobId, sourceVersions\)/);
++  assert.match(source, /markStageDraft\(flow, \{ stage, generationJobId, sourceVersions \}\)/);
++  assert.match(source, /abort\(\)/);
++  assert.match(source, /AbortController/);
++  assert.match(source, /isCurrentStageRun/);
++  assert.match(source, /signal: run\.controller\.signal/);
++  assert.match(source, /MAX_PERSISTED_IMAGE_BYTES = 512 \* 1024/);
++  assert.match(source, /MAX_WORKSPACE_PERSISTED_BYTES = 3 \* 1024 \* 1024/);
++  assert.match(source, /未持久化\/请换小图/);
++});
++
++test('superseded image batches stop before later requests and cannot persist over uploads', () => {
++  assert.match(source, /stageRunRef\.current\.get\(stage\)\?\.controller\.abort\(\)/);
++  assert.match(source, /for \(let index = 0; index < jobs\.length; index \+= 2\)/);
++  assert.match(source, /if \(!isCurrentStageRun\(stage, run\.generationJobId, run\.token\)\) return;/);
++  assert.match(source, /renderStageImage\(job, run\.controller\.signal\)/);
++  assert.match(source, /result\.status === 'fulfilled' && isCurrentStageRun/);
++  assert.match(source, /if \(!isCurrentStageRun\(result\.stage, activeRun\.generationJobId, activeRun\.token\)\) return current;/);
++  assert.match(source, /canPersistUploadedDataUrl\(imageUrl\)/);
++  assert.match(source, /fitsWorkspacePersistence\(finalized\)/);
++});
++
++test('character expression UI persists all twelve canonical ids', () => {
++  for (const id of ['joy', 'anger', 'sadness', 'fear', 'surprise', 'disgust', 'shy', 'nervous', 'confused', 'awkward', 'expectant', 'calm']) {
++    assert.match(source, new RegExp(`id: '${id}'`));
++  }
++  assert.match(source, /const DEFAULT_CHARACTER_EXPRESSION_IDS: CharacterExpressionId\[\] = CHARACTER_EXPRESSION_OPTIONS\.map/);
++});
++
+ test('an older request cannot clear loading while a newer request remains active', () => {
+   assert.match(source, /const activeStageGenerationCountRef = useRef\(0\)/);
+   assert.match(source, /activeStageGenerationCountRef\.current \+= 1/);
+@@ -382,8 +424,11 @@ test('overview exposes generated script and character assets instead of only nod
+   assert.match(styleSource, /\.character-proof-card\s*\{/);
+ });
+ 
+-test('character stage renders confirmable role cards from generated asset prompts', () => {
++test('character stage renders confirmable role cards from proposed characters JSON', () => {
+   assert.match(source, /type CharacterAssetCard/);
++  assert.match(source, /charactersFromWorkspace\(proposedWorkspace\)/);
++  assert.match(source, /filePath: 'characters\.json'/);
++  assert.match(source, /characterAssetIssues\[0\]/);
+   assert.match(source, /className="character-asset-grid"/);
+   assert.match(source, /visibleCharacterAssets\.map/);
+   assert.match(source, /className="character-asset-card"/);
+@@ -396,7 +441,7 @@ test('character stage renders confirmable role cards from generated asset prompt
+ 
+ test('character stage exposes pre-video role adjustment and expression controls', () => {
+   assert.match(source, /CHARACTER_EXPRESSION_OPTIONS/);
+-  ['喜', '怒', '哀', '乐', '惊讶', '害羞', '紧张', '尴尬', '疑惑', '坚定', '疲惫', '得意', '恐惧', '释然', '温柔', '专注', '委屈', '慌张'].forEach((label) => {
++  ['喜', '怒', '哀', '恐惧', '惊讶', '厌恶', '害羞', '紧张', '尴尬', '疑惑', '期待', '平静'].forEach((label) => {
+     assert.match(source, new RegExp(`label: '${label}'`));
+   });
+   assert.match(source, /roleExpressionDrafts/);
+@@ -439,3 +484,25 @@ test('character stage is a visual asset workbench with working production action
+   assert.match(styleSource, /\.character-stage-variants\s*\{/);
+   assert.match(styleSource, /\.character-design-menu\s*\{/);
+ });
++
++test('character regeneration forwards the current and Face ID anchor references to image rendering', () => {
++  assert.match(source, /const referenceImages = Array\.from/);
++  assert.match(source, /images: referenceImages/);
++  assert.match(source, /negativePrompt: character\.negativePrompt \|\| ''/);
++});
++
++test('character and scene stages generate missing images as reviewable draft patches', () => {
++  assert.match(source, /missingCharacterImageJobs/);
++  assert.match(source, /missingSceneImageJobs/);
++  assert.match(source, /applyStageImageResult/);
++  assert.match(source, /async function generateMissingCharacterImages/);
++  assert.match(source, /async function generateMissingSceneImages/);
++  assert.match(source, /async function renderStageImage/);
++  assert.match(source, /fetch\('\/api\/image\/render'/);
++  assert.match(source, /body: JSON\.stringify\(\{ prompt: job\.prompt, negativePrompt: job\.negativePrompt \}\)/);
++  assert.match(source, /Promise\.allSettled/);
++  assert.match(source, /jobs\.slice\(index, index \+ 2\)/);
++  assert.match(source, /persistSettledStageImages/);
++  assert.match(source, /重新生成场景图/);
++  assert.match(source, /替换场景图/);
++});
+diff --git a/app/api/image/render/route.ts b/app/api/image/render/route.ts
+new file mode 100644
+index 0000000..6d30522
+--- /dev/null
++++ b/app/api/image/render/route.ts
+@@ -0,0 +1,100 @@
++import { NextResponse } from 'next/server';
++
++export const runtime = 'nodejs';
++export const dynamic = 'force-dynamic';
++
++type ImageRenderRequest = {
++  prompt?: string;
++  negativePrompt?: string;
++  images?: string[];
++  image?: string | string[];
++  size?: string;
++};
++
++function imageConfig() {
++  const apiKey = process.env.IMAGE_API_KEY || process.env.CUSTOM_API_KEY || '';
++  const baseUrl = (process.env.IMAGE_BASE_URL || process.env.CUSTOM_BASE_URL || 'https://apihub.agnes-ai.com/v1').replace(/\/$/, '');
++  const model = process.env.IMAGE_MODEL || 'agnes-image-2.1-flash';
++  return { apiKey, baseUrl, model };
++}
++
++function redact(text: string) {
++  const { apiKey } = imageConfig();
++  return apiKey ? text.replaceAll(apiKey, '[redacted]') : text;
++}
++
++function stringList(value: unknown): string[] {
++  if (typeof value === 'string') return value.trim() ? [value.trim()] : [];
++  if (Array.isArray(value)) return value.flatMap((item) => stringList(item));
++  return [];
++}
++
++function firstString(value: unknown): string {
++  if (typeof value === 'string') return value;
++  if (Array.isArray(value)) return firstString(value[0]);
++  if (value && typeof value === 'object') {
++    const object = value as Record<string, unknown>;
++    return firstString(object.url || object.image_url || object.output_url || object.b64_json);
++  }
++  return '';
++}
++
++function normalizeImageResponse(raw: unknown) {
++  const value = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
++  const data = Array.isArray(value.data) ? value.data : [];
++  const imageUrl = firstString(value.imageUrl || value.image_url || value.url || value.output_url || data);
++  return {
++    ok: true,
++    imageUrl,
++    raw: value
++  };
++}
++
++export async function POST(request: Request) {
++  try {
++    const { apiKey, baseUrl, model } = imageConfig();
++    if (!apiKey) {
++      return NextResponse.json({ ok: false, error: 'IMAGE_API_KEY is required before submitting image generation.' }, { status: 400 });
++    }
++
++    const body = (await request.json()) as ImageRenderRequest;
++    const prompt = body.prompt?.trim();
++    const negativePrompt = body.negativePrompt?.trim();
++    if (!prompt) {
++      return NextResponse.json({ ok: false, error: 'prompt is required' }, { status: 400 });
++    }
++
++    const images = [...stringList(body.images), ...stringList(body.image)];
++    const upstreamBody: Record<string, unknown> = {
++      model,
++      prompt,
++      ...(negativePrompt ? { negative_prompt: negativePrompt } : {}),
++      size: body.size || '768x1024',
++      extra_body: {
++        ...(images.length ? { image: images } : {}),
++        response_format: 'url'
++      }
++    };
++
++    const response = await fetch(`${baseUrl}/images/generations`, {
++      method: 'POST',
++      headers: {
++        'content-type': 'application/json',
++        authorization: `Bearer ${apiKey}`
++      },
++      body: JSON.stringify(upstreamBody)
++    });
++    const text = await response.text();
++    const json = text ? JSON.parse(text) : {};
++
++    if (!response.ok) {
++      const message = typeof json?.error === 'string' ? json.error : JSON.stringify(json || {}).slice(0, 500);
++      return NextResponse.json({ ok: false, error: redact(message || `Image API error ${response.status}`) }, { status: response.status });
++    }
++
++    return NextResponse.json(normalizeImageResponse(json));
++  } catch (error) {
++    const message = error instanceof Error ? error.message : 'Unknown image render error';
++    return NextResponse.json({ ok: false, error: redact(message) }, { status: 500 });
++  }
++}
+diff --git a/app/api/image/render/route.test.cjs b/app/api/image/render/route.test.cjs
+new file mode 100644
+index 0000000..2771b50
+--- /dev/null
++++ b/app/api/image/render/route.test.cjs
+@@ -0,0 +1,177 @@
++const assert = require('node:assert/strict');
++const fs = require('node:fs');
++const path = require('node:path');
++const test = require('node:test');
++const vm = require('node:vm');
++const ts = require('typescript');
++
++function loadRoute() {
++  const routePath = path.join(__dirname, 'route.ts');
++  const source = fs.readFileSync(routePath, 'utf8');
++  const compiled = ts.transpileModule(source, {
++    compilerOptions: {
++      esModuleInterop: true,
++      module: ts.ModuleKind.CommonJS,
++      target: ts.ScriptTarget.ES2022
++    }
++  }).outputText;
++  const module = { exports: {} };
++  const context = {
++    URL,
++    Request,
++    Response,
++    console,
++    exports: module.exports,
++    module,
++    process,
++    require,
++    fetch: (...args) => global.__imageRouteFetch(...args)
++  };
++  vm.runInNewContext(compiled, context, { filename: routePath });
++  return module.exports;
++}
++
++async function withEnv(patch, fn) {
++  const keys = Object.keys(patch);
++  const previous = new Map(keys.map((key) => [key, process.env[key]]));
++  for (const [key, value] of Object.entries(patch)) {
++    if (value === undefined) delete process.env[key];
++    else process.env[key] = value;
++  }
++  try {
++    await fn();
++  } finally {
++    for (const [key, value] of previous) {
++      if (value === undefined) delete process.env[key];
++      else process.env[key] = value;
++    }
++  }
++}
++
++test('POST submits a text-to-image reference task to the configured Agnes image endpoint', async () => {
++  const { POST } = loadRoute();
++  let upstreamRequest;
++  global.__imageRouteFetch = async (url, init) => {
++    upstreamRequest = {
++      url: String(url),
++      authorization: init.headers.authorization,
++      body: JSON.parse(init.body)
++    };
++    return new Response(JSON.stringify({ data: [{ url: 'https://cdn.example/xiaopeng.png' }] }), {
++      status: 200,
++      headers: { 'content-type': 'application/json' }
++    });
++  };
++
++  await withEnv(
++    {
++      IMAGE_API_KEY: 'image-key',
++      IMAGE_BASE_URL: 'https://apihub.agnes-ai.com/v1',
++      IMAGE_MODEL: 'agnes-image-2.1-flash'
++    },
++    async () => {
++      const response = await POST(
++        new Request('http://localhost/api/image/render', {
++          method: 'POST',
++          headers: { 'content-type': 'application/json' },
++          body: JSON.stringify({
++            prompt: '真人校园短剧角色参考图，小澎，圆脸浓眉小虎牙',
++            negativePrompt: '  不要换脸，不要文字  ',
++            size: '768x1024'
++          })
++        })
++      );
++      const body = await response.json();
++
++      assert.equal(response.status, 200);
++      assert.equal(body.imageUrl, 'https://cdn.example/xiaopeng.png');
++    }
++  );
++
++  assert.equal(upstreamRequest.url, 'https://apihub.agnes-ai.com/v1/images/generations');
++  assert.equal(upstreamRequest.authorization, 'Bearer image-key');
++  assert.equal(upstreamRequest.body.model, 'agnes-image-2.1-flash');
++  assert.equal(upstreamRequest.body.prompt, '真人校园短剧角色参考图，小澎，圆脸浓眉小虎牙');
++  assert.equal(upstreamRequest.body.size, '768x1024');
++  assert.equal(upstreamRequest.body.negative_prompt, '不要换脸，不要文字');
++  assert.deepEqual(upstreamRequest.body.extra_body, { response_format: 'url' });
++});
++
++test('POST omits negative_prompt when the request value is blank', async () => {
++  const { POST } = loadRoute();
++  let upstreamBody;
++  global.__imageRouteFetch = async (url, init) => {
++    upstreamBody = JSON.parse(init.body);
++    return new Response(JSON.stringify({ data: [{ url: 'https://cdn.example/scene.png' }] }), { status: 200 });
++  };
++  await withEnv({ IMAGE_API_KEY: 'image-key' }, async () => {
++    const response = await POST(new Request('http://localhost/api/image/render', {
++      method: 'POST', headers: { 'content-type': 'application/json' },
++      body: JSON.stringify({ prompt: '教室场景', negativePrompt: '   ' })
++    }));
++    assert.equal(response.status, 200);
++  });
++  assert.equal(Object.hasOwn(upstreamBody, 'negative_prompt'), false);
++});
++
++test('POST passes image-to-image references through extra_body.image', async () => {
++  const { POST } = loadRoute();
++  let upstreamBody;
++  global.__imageRouteFetch = async (url, init) => {
++    upstreamBody = JSON.parse(init.body);
++    return new Response(JSON.stringify({ data: [{ url: 'https://cdn.example/xiaopeng-younger.png' }] }), {
++      status: 200,
++      headers: { 'content-type': 'application/json' }
++    });
++  };
++
++  await withEnv(
++    {
++      IMAGE_API_KEY: 'image-key',
++      IMAGE_BASE_URL: 'https://apihub.agnes-ai.com/v1',
++      IMAGE_MODEL: 'agnes-image-2.1-flash'
++    },
++    async () => {
++      const response = await POST(
++        new Request('http://localhost/api/image/render', {
++          method: 'POST',
++          headers: { 'content-type': 'application/json' },
++          body: JSON.stringify({
++            prompt: '把参考人物改成高中年龄，保持脸部特征一致',
++            images: ['https://cdn.example/xiaopeng-base.png'],
++            size: '768x1024'
++          })
++        })
++      );
++      assert.equal(response.status, 200);
++    }
++  );
++
++  assert.deepEqual(upstreamBody.extra_body, {
++    image: ['https://cdn.example/xiaopeng-base.png'],
++    response_format: 'url'
++  });
++});
++
++test('POST returns a clear configuration error when image API key is missing', async () => {
++  const { POST } = loadRoute();
++  await withEnv(
++    {
++      IMAGE_API_KEY: undefined,
++      CUSTOM_API_KEY: undefined
++    },
++    async () => {
++      const response = await POST(
++        new Request('http://localhost/api/image/render', {
++          method: 'POST',
++          headers: { 'content-type': 'application/json' },
++          body: JSON.stringify({ prompt: '测试图片' })
++        })
++      );
++      const body = await response.json();
++
++      assert.equal(response.status, 400);
++      assert.match(body.error, /IMAGE_API_KEY/);
++    }
++  );
++});
+

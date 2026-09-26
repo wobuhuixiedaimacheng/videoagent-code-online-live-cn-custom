@@ -1,0 +1,440 @@
+<style>
+  .effect-wrap {
+    --ink: #161616;
+    --muted: #8b8b88;
+    --line: #e9e9e6;
+    --panel: #ffffff;
+    --wash: #f4f4f2;
+    --active: #222222;
+    --green: #19c58a;
+    --blue: #4d88ff;
+    --amber: #f0a63a;
+    --red: #e95b5b;
+    color: var(--ink);
+  }
+  .effect-title { display: flex; align-items: end; justify-content: space-between; gap: 20px; margin-bottom: 16px; }
+  .effect-title h2 { margin: 0; font-size: 28px; letter-spacing: 0; }
+  .effect-title p { margin: 6px 0 0; color: var(--muted); }
+  .screen {
+    border: 1px solid #ddddda;
+    border-radius: 18px;
+    overflow: hidden;
+    background: #fff;
+    box-shadow: 0 24px 80px rgba(0,0,0,.12);
+    min-height: 760px;
+    display: grid;
+    grid-template-columns: 260px minmax(560px, 1fr) 330px;
+  }
+  .side {
+    background: #efefed;
+    border-right: 1px solid #dededb;
+    padding: 18px 14px;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .traffic { display: flex; gap: 8px; margin: 0 0 26px 4px; }
+  .traffic i { width: 12px; height: 12px; border-radius: 50%; display: block; }
+  .traffic i:nth-child(1) { background: #ff5f58; }
+  .traffic i:nth-child(2) { background: #ffbd2e; }
+  .traffic i:nth-child(3) { background: #28c840; }
+  .brand { color: #aaa9a5; font-weight: 900; margin: 0 0 20px 6px; }
+  .brand span { color: #cac9c4; font-weight: 700; margin-left: 4px; }
+  .nav { display: grid; gap: 6px; }
+  .nav-row {
+    height: 42px;
+    border-radius: 10px;
+    padding: 0 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 850;
+    color: #262626;
+  }
+  .nav-row.active { background: #dededb; }
+  .nav-row small { margin-left: auto; color: #aaa8a3; font-weight: 750; }
+  .nav-ico { width: 22px; text-align: center; color: #555; }
+  .space-label { color: #aaa8a3; font-weight: 850; margin: 28px 10px 10px; }
+  .workspace-item {
+    height: 40px;
+    border-radius: 10px;
+    padding: 0 10px;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    font-weight: 800;
+  }
+  .userbar { margin-top: auto; display: flex; align-items: center; gap: 10px; padding: 12px 6px 0; }
+  .avatar {
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: var(--green);
+    color: #fff;
+    font-weight: 950;
+  }
+  .userbar b { display: block; }
+  .mini-icons { margin-left: auto; color: #666; display: flex; gap: 13px; font-size: 18px; }
+
+  .main {
+    background: #fff;
+    padding: 22px 26px;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
+  .conn { color: #777; font-weight: 760; }
+  .conn b { color: var(--green); }
+  .top-actions { display: flex; gap: 10px; align-items: center; }
+  .chip, .tiny-chip {
+    border: 1px solid var(--line);
+    background: #fafafa;
+    border-radius: 10px;
+    padding: 8px 11px;
+    font-weight: 820;
+    color: #343434;
+    white-space: nowrap;
+  }
+  .tiny-chip { padding: 5px 8px; border-radius: 8px; font-size: 12px; color: #666; }
+  .hero h1 { margin: 4px 0 8px; font-size: 42px; line-height: 1.03; letter-spacing: 0; }
+  .hero p { margin: 0 0 16px; color: #777; font-size: 16px; }
+  .mode-tabs { display: inline-flex; gap: 5px; background: #ececea; padding: 4px; border-radius: 12px; margin-bottom: 15px; }
+  .mode-tabs span { padding: 8px 14px; border-radius: 9px; color: #555; font-weight: 850; }
+  .mode-tabs .active { background: #262626; color: #fff; }
+  .composer {
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    background: #fff;
+    box-shadow: 0 18px 42px rgba(0,0,0,.07);
+    overflow: hidden;
+    margin-bottom: 20px;
+  }
+  .prompt {
+    min-height: 86px;
+    padding: 18px 20px;
+    color: #a6a6a2;
+    font-size: 16px;
+  }
+  .composer-bar {
+    min-height: 56px;
+    border-top: 1px solid #f1f1ef;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    background: #fbfbfa;
+    flex-wrap: wrap;
+  }
+  .send {
+    margin-left: auto;
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: #999;
+    color: #fff;
+    font-weight: 950;
+  }
+  .run-head { display: flex; justify-content: space-between; align-items: end; margin: 6px 0 10px; }
+  .run-head h3 { margin: 0; font-size: 22px; }
+  .run-head p { margin: 4px 0 0; color: #888; }
+  .agent-lane {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0,1fr));
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+  .agent {
+    border: 1px solid #ededeb;
+    background: #fbfbfa;
+    border-radius: 12px;
+    padding: 12px;
+    min-height: 104px;
+    position: relative;
+  }
+  .agent b { display: block; font-size: 14px; margin-bottom: 7px; }
+  .agent p { margin: 0; color: #777; font-size: 12px; line-height: 1.45; }
+  .agent:before {
+    content: "";
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #bbb;
+  }
+  .agent.done:before { background: var(--green); }
+  .agent.running { border-color: rgba(25,197,138,.5); background: #f3fff9; }
+  .agent.running:before { background: var(--amber); }
+  .scene-board {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0,1fr));
+    gap: 9px;
+    margin-top: 10px;
+  }
+  .scene {
+    border: 1px solid #ececea;
+    border-radius: 12px;
+    background: #fff;
+    padding: 12px 10px;
+    min-height: 126px;
+  }
+  .scene strong { display: block; font-size: 13px; margin-bottom: 5px; }
+  .scene em { font-style: normal; color: #999; font-size: 11px; display: block; margin-bottom: 10px; }
+  .scene p { margin: 0; color: #555; font-size: 12px; line-height: 1.45; }
+  .scene.active { border-color: var(--green); box-shadow: 0 8px 20px rgba(25,197,138,.12); }
+  .bottom-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 14px; }
+  .asset-card {
+    border: 1px solid #ededeb;
+    border-radius: 12px;
+    padding: 13px;
+    background: #fbfbfa;
+  }
+  .asset-card b { display: block; margin-bottom: 8px; }
+  .asset-card p { margin: 0; color: #777; line-height: 1.45; font-size: 12px; }
+
+  .right {
+    background: #f7f7f5;
+    border-left: 1px solid #e3e3e0;
+    padding: 20px 16px;
+    min-width: 0;
+  }
+  .right h3 { margin: 4px 0 4px; font-size: 21px; }
+  .right-note { margin: 0 0 16px; color: #888; font-size: 13px; }
+  .panel {
+    border: 1px solid #e6e6e3;
+    border-radius: 14px;
+    background: #fff;
+    padding: 14px;
+    margin-bottom: 12px;
+  }
+  .panel-title { display: flex; justify-content: space-between; gap: 10px; align-items: center; margin-bottom: 10px; }
+  .panel-title b { font-size: 14px; }
+  .status { color: var(--green); font-weight: 900; font-size: 12px; }
+  .file-list { display: grid; gap: 8px; }
+  .file {
+    display: grid;
+    grid-template-columns: 28px 1fr auto;
+    gap: 8px;
+    align-items: center;
+    color: #555;
+    font-size: 12px;
+    padding: 8px;
+    border-radius: 9px;
+    background: #fafafa;
+  }
+  .file b { color: #333; font-size: 12px; }
+  .check { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 0; border-top: 1px solid #f0f0ee; font-size: 12px; }
+  .check:first-child { border-top: 0; }
+  .ok { color: var(--green); font-weight: 900; }
+  .warn { color: var(--amber); font-weight: 900; }
+  .phone {
+    aspect-ratio: 9 / 15.5;
+    border-radius: 28px;
+    border: 8px solid #202020;
+    background: linear-gradient(180deg, #141414, #272727);
+    overflow: hidden;
+    position: relative;
+    color: #fff;
+  }
+  .phone:before {
+    content: "";
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 72px;
+    height: 18px;
+    border-radius: 99px;
+    background: #050505;
+    z-index: 2;
+  }
+  .phone-visual {
+    height: 62%;
+    background:
+      radial-gradient(circle at 25% 25%, rgba(25,197,138,.8), transparent 24%),
+      radial-gradient(circle at 82% 18%, rgba(77,136,255,.65), transparent 26%),
+      linear-gradient(145deg, #303030, #141414);
+    display: flex;
+    align-items: end;
+    padding: 18px;
+    font-size: 22px;
+    font-weight: 950;
+    line-height: 1.15;
+  }
+  .phone-copy { padding: 14px; font-size: 12px; line-height: 1.5; color: #ddd; }
+  .phone-copy b { display: block; color: #fff; margin-bottom: 6px; font-size: 14px; }
+  .approve {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .approve button {
+    border: 1px solid #e1e1de;
+    border-radius: 10px;
+    padding: 10px 8px;
+    background: #fff;
+    font-weight: 900;
+  }
+  .approve button:last-child { background: var(--green); color: #fff; border-color: var(--green); }
+
+  @media (max-width: 1280px) {
+    .screen { grid-template-columns: 230px minmax(520px,1fr); }
+    .right { display: none; }
+  }
+  @media (max-width: 860px) {
+    .screen { grid-template-columns: 1fr; }
+    .side { display: none; }
+    .agent-lane { grid-template-columns: repeat(2, 1fr); }
+    .scene-board { grid-template-columns: repeat(2, 1fr); }
+    .bottom-row { grid-template-columns: 1fr; }
+  }
+</style>
+
+<div class="effect-wrap">
+  <div class="effect-title">
+    <div>
+      <h2>AIGC Buddy 效果草图</h2>
+      <p>WorkBuddy 的入口心智 + CC 的执行透明度 + AIGC 的内容资产流水线。</p>
+    </div>
+    <div class="tiny-chip">网页版工作台 · C端 / 小B</div>
+  </div>
+
+  <div class="screen">
+    <aside class="side">
+      <div class="traffic"><i></i><i></i><i></i></div>
+      <div class="brand">AIGC Buddy <span>v0.1</span></div>
+      <div class="nav">
+        <div class="nav-row active"><span class="nav-ico">＋</span>新建内容</div>
+        <div class="nav-row"><span class="nav-ico">◎</span>助理</div>
+        <div class="nav-row"><span class="nav-ico">◌</span>项目</div>
+        <div class="nav-row"><span class="nav-ico">◈</span>Agent 专家 <small>技能·连接器</small></div>
+        <div class="nav-row"><span class="nav-ico">↻</span>自动化</div>
+        <div class="nav-row"><span class="nav-ico">⌘</span>资料库 <small>素材·灵感</small></div>
+      </div>
+      <div class="space-label">空间 (1)</div>
+      <div class="workspace-item">◌ 出海旅游内容中台</div>
+      <div class="workspace-item">◌ 本地生活商家样例</div>
+      <div class="userbar">
+        <div class="avatar">C</div>
+        <div><b>Carroll</b></div>
+        <div class="mini-icons"><span>○</span><span>⌁</span></div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="topbar">
+        <div class="conn">已连接：<b>小红书</b> · 抖音 · TikTok · 产品素材库</div>
+        <div class="top-actions">
+          <div class="chip">Agent 团：8</div>
+          <div class="chip">权限：需批准</div>
+        </div>
+      </div>
+
+      <section class="hero">
+        <h1>让 Agent 帮你生产 AIGC 内容资产</h1>
+        <p>输入一个产品、活动或爆款参考，系统拆成场景，派发子 Agent，最后生成脚本、分镜、素材提示词和发布文案。</p>
+        <div class="mode-tabs">
+          <span class="active">短视频</span>
+          <span>图文笔记</span>
+          <span>广告素材</span>
+          <span>直播切片</span>
+        </div>
+      </section>
+
+      <section class="composer">
+        <div class="prompt">今天帮你做些什么？例如：给“巴厘岛亲子游”生成 5 条小红书短视频，逐条拆场景，并输出图片/视频素材提示词。</div>
+        <div class="composer-bar">
+          <span class="tiny-chip">Craft</span>
+          <span class="tiny-chip">自动拆场景</span>
+          <span class="tiny-chip">调用 Agent 专家</span>
+          <span class="tiny-chip">连资料库</span>
+          <span class="tiny-chip">默认需批准</span>
+          <span class="send">▲</span>
+        </div>
+      </section>
+
+      <div class="run-head">
+        <div>
+          <h3>当前任务：巴厘岛亲子游内容包</h3>
+          <p>Orchestrator 正在拆任务，下面每个子 Agent 都会产出可审查文件。</p>
+        </div>
+        <div class="tiny-chip">运行中 04:18</div>
+      </div>
+
+      <div class="agent-lane">
+        <div class="agent done"><b>Brief Agent</b><p>已补全用户、产品、平台、转化目标和禁用表达。</p></div>
+        <div class="agent done"><b>Scene Splitter</b><p>把 5 条视频拆成 Hook / Proof / Offer / CTA。</p></div>
+        <div class="agent running"><b>Script Agent</b><p>正在生成口播、字幕和标题候选。</p></div>
+        <div class="agent"><b>Shot Agent</b><p>等待脚本后生成镜头、动作、构图和节奏。</p></div>
+        <div class="agent"><b>Prompt Agent</b><p>为每个镜头输出图片/视频生成提示词。</p></div>
+        <div class="agent"><b>Platform Agent</b><p>适配小红书、抖音、TikTok 的表达和标题。</p></div>
+        <div class="agent"><b>Compliance Agent</b><p>检查夸大承诺、平台风险、敏感词。</p></div>
+        <div class="agent"><b>Review Agent</b><p>汇总问题，提出可批准 patch。</p></div>
+      </div>
+
+      <div class="run-head">
+        <div>
+          <h3>场景拆解</h3>
+          <p>点击任何场景，可以看到它调用了哪些子 Agent、生成了哪些资产。</p>
+        </div>
+        <div class="tiny-chip">5 scenes</div>
+      </div>
+      <div class="scene-board">
+        <div class="scene active"><strong>Scene 01</strong><em>3 秒 Hook</em><p>孩子不想走，大人也不累的巴厘岛亲子玩法。</p></div>
+        <div class="scene"><strong>Scene 02</strong><em>痛点共鸣</em><p>亲子游最怕行程赶、吃不好、拍不到。</p></div>
+        <div class="scene"><strong>Scene 03</strong><em>卖点证明</em><p>酒店、路线、亲子项目、中文服务一条线。</p></div>
+        <div class="scene"><strong>Scene 04</strong><em>信任背书</em><p>真实用户反馈、预算透明、避坑建议。</p></div>
+        <div class="scene"><strong>Scene 05</strong><em>CTA 转化</em><p>评论区领 3 天 2 晚亲子路线清单。</p></div>
+      </div>
+
+      <div class="bottom-row">
+        <div class="asset-card"><b>生成文件</b><p>brief.json / scenes.json / script.md / storyboard.json / asset_prompts.json / publish_copy.json / compliance_report.json</p></div>
+        <div class="asset-card"><b>下一步建议</b><p>先批准 Scene 01 的 Hook 和脚本，再让 Prompt Agent 批量生成首图和 3 个视频镜头提示词。</p></div>
+      </div>
+    </main>
+
+    <aside class="right">
+      <h3>Scene 01</h3>
+      <p class="right-note">当前选中的场景资产和审批状态。</p>
+
+      <div class="panel">
+        <div class="panel-title"><b>手机预览</b><span class="status">Draft</span></div>
+        <div class="phone">
+          <div class="phone-visual">巴厘岛亲子游<br>别再排满行程</div>
+          <div class="phone-copy"><b>标题候选</b>第一次带娃去巴厘岛，我建议你把行程砍掉一半。</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title"><b>产出文件</b><span class="status">6 changed</span></div>
+        <div class="file-list">
+          <div class="file"><span>MD</span><b>script.md</b><span>v2</span></div>
+          <div class="file"><span>JS</span><b>scenes.json</b><span>v2</span></div>
+          <div class="file"><span>AI</span><b>asset_prompts.json</b><span>v1</span></div>
+          <div class="file"><span>CP</span><b>publish_copy.json</b><span>v1</span></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title"><b>合规检查</b><span class="status">2 pass</span></div>
+        <div class="check"><span>无绝对化承诺</span><b class="ok">通过</b></div>
+        <div class="check"><span>价格/名额表达</span><b class="warn">需确认</b></div>
+        <div class="check"><span>平台敏感词</span><b class="ok">通过</b></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title"><b>审批</b><span class="status">等待你</span></div>
+        <div class="approve">
+          <button>退回修改</button>
+          <button>批准写入</button>
+        </div>
+      </div>
+    </aside>
+  </div>
+</div>

@@ -1,0 +1,308 @@
+<svg viewBox="0 0 1440 1160" xmlns="http://www.w3.org/2000/svg">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&amp;display=swap');
+    text { font-family: 'JetBrains Mono', 'Noto Sans SC', 'PingFang SC', sans-serif; }
+    .title { fill: #f8fafc; font-size: 20px; font-weight: 700; }
+    .subtitle { fill: #94a3b8; font-size: 10px; }
+    .region-main { fill: rgba(6,78,59,0.07); stroke: #34d399; stroke-width: 1.3; stroke-dasharray: 10 4; }
+    .region-side { fill: rgba(30,41,59,0.18); stroke: #94a3b8; stroke-width: 1.2; stroke-dasharray: 6 4; }
+    .region-entry { fill: none; stroke: #22d3ee; stroke-width: 1; stroke-dasharray: 8 4; }
+    .region-risk { fill: rgba(136,19,55,0.13); stroke: #fb7185; stroke-width: 1; stroke-dasharray: 4 4; }
+    .mask { fill: #0f172a; }
+    .cyan { fill: rgba(8,51,68,0.5); stroke: #22d3ee; stroke-width: 1.5; }
+    .green { fill: rgba(6,78,59,0.45); stroke: #34d399; stroke-width: 1.5; }
+    .violet { fill: rgba(76,29,149,0.45); stroke: #a78bfa; stroke-width: 1.5; }
+    .amber { fill: rgba(120,53,15,0.36); stroke: #fbbf24; stroke-width: 1.5; }
+    .orange { fill: rgba(251,146,60,0.24); stroke: #fb923c; stroke-width: 1.5; }
+    .slate { fill: rgba(30,41,59,0.72); stroke: #94a3b8; stroke-width: 1.5; }
+    .rose { fill: rgba(136,19,55,0.43); stroke: #fb7185; stroke-width: 1.5; }
+    .name { fill: #f8fafc; font-size: 11px; font-weight: 600; text-anchor: middle; }
+    .desc { fill: #94a3b8; font-size: 8.5px; text-anchor: middle; }
+    .tiny { fill: #cbd5e1; font-size: 7.5px; font-weight: 500; text-anchor: middle; }
+    .lane-title { font-size: 10px; font-weight: 700; }
+    .arrow-label { fill: #cbd5e1; font-size: 7.5px; font-weight: 600; text-anchor: middle; }
+    .risk { fill: #ffe4e6; font-size: 8.5px; font-weight: 500; text-anchor: middle; }
+    .legend { fill: #cbd5e1; font-size: 8px; font-weight: 500; }
+  </style>
+
+  <defs>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
+    </pattern>
+    <marker id="a-cyan" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0,10 3.5,0 7" fill="#22d3ee"/>
+    </marker>
+    <marker id="a-green" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0,10 3.5,0 7" fill="#34d399"/>
+    </marker>
+    <marker id="a-amber" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0,10 3.5,0 7" fill="#fbbf24"/>
+    </marker>
+    <marker id="a-orange" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0,10 3.5,0 7" fill="#fb923c"/>
+    </marker>
+    <marker id="a-slate" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0,10 3.5,0 7" fill="#94a3b8"/>
+    </marker>
+    <marker id="a-violet" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0,10 3.5,0 7" fill="#a78bfa"/>
+    </marker>
+  </defs>
+
+  <rect width="100%" height="100%" fill="#0f172a"/>
+  <rect width="100%" height="100%" fill="url(#grid)"/>
+
+  <!-- Regions -->
+  <rect x="30" y="85" width="1380" height="160" rx="12" class="region-entry"/>
+  <text x="48" y="106" fill="#22d3ee" class="lane-title">统一入口</text>
+
+  <rect x="30" y="275" width="850" height="690" rx="12" class="region-main"/>
+  <text x="48" y="297" fill="#34d399" class="lane-title">A. 当前产品主链路 · 阶段状态机编排</text>
+
+  <rect x="910" y="275" width="500" height="690" rx="12" class="region-side"/>
+  <text x="928" y="297" fill="#94a3b8" class="lane-title">B. 可选旁路 · True Agent Loop</text>
+
+  <rect x="30" y="990" width="1380" height="105" rx="10" class="region-risk"/>
+  <text x="48" y="1011" fill="#fecdd3" class="lane-title">严格结论</text>
+
+  <!-- Connections: entry -->
+  <path d="M 255 165 L 305 165" fill="none" stroke="#22d3ee" stroke-width="2" marker-end="url(#a-cyan)"/>
+  <path d="M 545 165 L 595 165" fill="none" stroke="#22d3ee" stroke-width="2" marker-end="url(#a-cyan)"/>
+  <path d="M 795 165 L 955 165" fill="none" stroke="#22d3ee" stroke-width="2" marker-end="url(#a-cyan)"/>
+
+  <!-- Branches from decision -->
+  <path d="M 990 205 L 990 255 L 455 255 L 455 325" fill="none" stroke="#34d399" stroke-width="2.2" marker-end="url(#a-green)"/>
+  <text x="675" y="250" fill="#6ee7b7" class="arrow-label">YES · 主 UI 每次都走这里</text>
+  <path d="M 1060 165 L 1330 165 L 1330 325" fill="none" stroke="#94a3b8" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#a-slate)"/>
+  <text x="1200" y="156" class="arrow-label">NO 且 AGENT_LOOP=1</text>
+
+  <!-- Main lane stage pipeline -->
+  <path d="M 160 375 L 220 375" fill="none" stroke="#34d399" stroke-width="1.5" marker-end="url(#a-green)"/>
+  <path d="M 300 375 L 360 375" fill="none" stroke="#34d399" stroke-width="1.5" marker-end="url(#a-green)"/>
+  <path d="M 440 375 L 500 375" fill="none" stroke="#34d399" stroke-width="1.5" marker-end="url(#a-green)"/>
+  <path d="M 580 375 L 640 375" fill="none" stroke="#34d399" stroke-width="1.5" marker-end="url(#a-green)"/>
+  <path d="M 720 375 L 780 375" fill="none" stroke="#34d399" stroke-width="1.5" marker-end="url(#a-green)"/>
+
+  <path d="M 455 405 L 455 450 L 165 450 L 165 480" fill="none" stroke="#34d399" stroke-width="1.7" marker-end="url(#a-green)"/>
+  <path d="M 250 515 L 290 515" fill="none" stroke="#34d399" stroke-width="1.8" marker-end="url(#a-green)"/>
+  <path d="M 470 515 L 510 515" fill="none" stroke="#34d399" stroke-width="1.8" marker-end="url(#a-green)"/>
+  <path d="M 690 515 L 735 515 L 735 585 L 250 585 L 250 625" fill="none" stroke="#34d399" stroke-width="1.8" marker-end="url(#a-green)"/>
+  <path d="M 335 660 L 375 660" fill="none" stroke="#34d399" stroke-width="1.8" marker-end="url(#a-green)"/>
+  <path d="M 555 660 L 595 660" fill="none" stroke="#34d399" stroke-width="1.8" marker-end="url(#a-green)"/>
+
+  <!-- Main lane approval loop -->
+  <path d="M 680 695 L 680 735 L 455 735 L 455 765" fill="none" stroke="#a78bfa" stroke-width="1.6" marker-end="url(#a-violet)"/>
+  <path d="M 455 835 L 455 885 L 70 885 L 70 375 L 80 375" fill="none" stroke="#34d399" stroke-width="1.7" marker-end="url(#a-green)"/>
+  <text x="250" y="878" fill="#6ee7b7" class="arrow-label">确认后解锁下一阶段；上游变化会使下游 stale</text>
+
+  <!-- Main lane media branches -->
+  <path d="M 680 695 L 785 695 L 785 765" fill="none" stroke="#fbbf24" stroke-width="1.6" marker-end="url(#a-amber)"/>
+  <text x="787" y="735" fill="#fde68a" class="arrow-label">角色 / 场景 / 视频</text>
+
+  <!-- Side loop internal connections -->
+  <path d="M 1030 395 L 1030 430" fill="none" stroke="#94a3b8" stroke-width="1.6" marker-end="url(#a-slate)"/>
+  <path d="M 1120 465 L 1190 465" fill="none" stroke="#94a3b8" stroke-width="1.6" marker-end="url(#a-slate)"/>
+  <path d="M 1260 505 L 1260 545" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#a-slate)"/>
+  <text x="1290" y="530" class="arrow-label">NO</text>
+  <path d="M 1225 485 L 1090 560" fill="none" stroke="#94a3b8" stroke-width="1.6" marker-end="url(#a-slate)"/>
+  <text x="1135" y="516" class="arrow-label">YES</text>
+  <path d="M 1090 620 L 1090 650" fill="none" stroke="#94a3b8" stroke-width="1.4"/>
+  <path d="M 1090 650 L 1015 650 L 1015 675" fill="none" stroke="#94a3b8" stroke-width="1.4" marker-end="url(#a-slate)"/>
+  <path d="M 1090 650 L 1165 650 L 1165 675" fill="none" stroke="#94a3b8" stroke-width="1.4" marker-end="url(#a-slate)"/>
+  <path d="M 1015 745 L 1015 790 L 970 790 L 970 465 L 940 465" fill="none" stroke="#94a3b8" stroke-width="1.3" stroke-dasharray="5 4" marker-end="url(#a-slate)"/>
+  <path d="M 1165 745 L 1165 790 L 970 790" fill="none" stroke="#94a3b8" stroke-width="1.3" stroke-dasharray="5 4"/>
+  <text x="1060" y="785" class="arrow-label">tool_result 回灌 messages，最多 12 步</text>
+  <path d="M 1235 710 L 1330 710 L 1330 820" fill="none" stroke="#94a3b8" stroke-width="1.4" marker-end="url(#a-slate)"/>
+  <path d="M 1260 605 L 1330 605 L 1330 820" fill="none" stroke="#94a3b8" stroke-width="1.4" marker-end="url(#a-slate)"/>
+
+  <!-- Opaque masks + Entry boxes -->
+  <rect x="65" y="130" width="190" height="70" rx="7" class="mask"/>
+  <rect x="65" y="130" width="190" height="70" rx="7" class="cyan"/>
+  <rect x="305" y="130" width="240" height="70" rx="7" class="mask"/>
+  <rect x="305" y="130" width="240" height="70" rx="7" class="green"/>
+  <rect x="595" y="130" width="200" height="70" rx="7" class="mask"/>
+  <rect x="595" y="130" width="200" height="70" rx="7" class="green"/>
+  <polygon points="990,120 1060,165 990,210 920,165" class="mask"/>
+  <polygon points="990,120 1060,165 990,210 920,165" class="amber"/>
+
+  <!-- Main lane stage boxes -->
+  <rect x="80" y="345" width="80" height="60" rx="6" class="mask"/>
+  <rect x="80" y="345" width="80" height="60" rx="6" class="green"/>
+  <rect x="220" y="345" width="80" height="60" rx="6" class="mask"/>
+  <rect x="220" y="345" width="80" height="60" rx="6" class="green"/>
+  <rect x="360" y="345" width="80" height="60" rx="6" class="mask"/>
+  <rect x="360" y="345" width="80" height="60" rx="6" class="green"/>
+  <rect x="500" y="345" width="80" height="60" rx="6" class="mask"/>
+  <rect x="500" y="345" width="80" height="60" rx="6" class="green"/>
+  <rect x="640" y="345" width="80" height="60" rx="6" class="mask"/>
+  <rect x="640" y="345" width="80" height="60" rx="6" class="green"/>
+  <rect x="780" y="345" width="60" height="60" rx="6" class="mask"/>
+  <rect x="780" y="345" width="60" height="60" rx="6" class="orange"/>
+
+  <!-- Main lane generation boxes -->
+  <rect x="80" y="480" width="170" height="70" rx="7" class="mask"/>
+  <rect x="80" y="480" width="170" height="70" rx="7" class="green"/>
+  <rect x="290" y="480" width="180" height="70" rx="7" class="mask"/>
+  <rect x="290" y="480" width="180" height="70" rx="7" class="amber"/>
+  <rect x="510" y="480" width="180" height="70" rx="7" class="mask"/>
+  <rect x="510" y="480" width="180" height="70" rx="7" class="green"/>
+
+  <rect x="165" y="625" width="170" height="70" rx="7" class="mask"/>
+  <rect x="165" y="625" width="170" height="70" rx="7" class="violet"/>
+  <rect x="375" y="625" width="180" height="70" rx="7" class="mask"/>
+  <rect x="375" y="625" width="180" height="70" rx="7" class="cyan"/>
+  <rect x="595" y="625" width="170" height="70" rx="7" class="mask"/>
+  <rect x="595" y="625" width="170" height="70" rx="7" class="green"/>
+
+  <rect x="330" y="765" width="250" height="70" rx="7" class="mask"/>
+  <rect x="330" y="765" width="250" height="70" rx="7" class="violet"/>
+  <rect x="700" y="765" width="160" height="90" rx="7" class="mask"/>
+  <rect x="700" y="765" width="160" height="90" rx="7" class="orange"/>
+
+  <!-- Side loop boxes -->
+  <rect x="945" y="325" width="170" height="70" rx="7" class="mask"/>
+  <rect x="945" y="325" width="170" height="70" rx="7" class="slate"/>
+  <rect x="945" y="430" width="175" height="70" rx="7" class="mask"/>
+  <rect x="945" y="430" width="175" height="70" rx="7" class="slate"/>
+  <polygon points="1260,425 1325,465 1260,505 1195,465" class="mask"/>
+  <polygon points="1260,425 1325,465 1260,505 1195,465" class="slate"/>
+  <rect x="1010" y="550" width="160" height="70" rx="7" class="mask"/>
+  <rect x="1010" y="550" width="160" height="70" rx="7" class="slate"/>
+  <rect x="945" y="675" width="140" height="70" rx="7" class="mask"/>
+  <rect x="945" y="675" width="140" height="70" rx="7" class="slate"/>
+  <rect x="1095" y="675" width="140" height="70" rx="7" class="mask"/>
+  <rect x="1095" y="675" width="140" height="70" rx="7" class="slate"/>
+  <rect x="1245" y="675" width="135" height="70" rx="7" class="mask"/>
+  <rect x="1245" y="675" width="135" height="70" rx="7" class="orange"/>
+  <rect x="1245" y="820" width="135" height="80" rx="7" class="mask"/>
+  <rect x="1245" y="820" width="135" height="80" rx="7" class="slate"/>
+
+  <!-- Risk boxes -->
+  <rect x="55" y="1025" width="420" height="52" rx="6" class="mask"/>
+  <rect x="55" y="1025" width="420" height="52" rx="6" class="rose"/>
+  <rect x="510" y="1025" width="420" height="52" rx="6" class="mask"/>
+  <rect x="510" y="1025" width="420" height="52" rx="6" class="rose"/>
+  <rect x="965" y="1025" width="420" height="52" rx="6" class="mask"/>
+  <rect x="965" y="1025" width="420" height="52" rx="6" class="rose"/>
+
+  <!-- Title -->
+  <text x="30" y="36" class="title">VideoAgent Agent 编排 · 当前真实行为</text>
+  <text x="30" y="59" class="subtitle">重点不是“有多少 Agent 名字”，而是谁控制状态、谁能调用工具、谁负责把结果写入生产资产</text>
+
+  <!-- Entry labels -->
+  <text x="160" y="158" class="name">用户指令</text>
+  <text x="160" y="178" class="desc">聊天 / 修改 / 重新生成</text>
+
+  <text x="425" y="153" class="name">浏览器 Stage Orchestrator</text>
+  <text x="425" y="173" class="desc">runAgent 总是先 requestStageDraft('script')</text>
+  <text x="425" y="188" class="desc">维护 job token、AbortController、版本与阶段状态</text>
+
+  <text x="695" y="158" class="name">POST /api/agent/run</text>
+  <text x="695" y="178" class="desc">携带 workspace + productionStage</text>
+
+  <text x="990" y="159" class="name">productionStage?</text>
+  <text x="990" y="176" class="desc">runVideoAgent 分流</text>
+
+  <!-- Main stage labels -->
+  <text x="120" y="368" class="name">脚本</text>
+  <text x="120" y="387" class="desc">script</text>
+  <text x="260" y="368" class="name">角色</text>
+  <text x="260" y="387" class="desc">prompt</text>
+  <text x="400" y="368" class="name">场景</text>
+  <text x="400" y="387" class="desc">scene</text>
+  <text x="540" y="368" class="name">分镜</text>
+  <text x="540" y="387" class="desc">shot</text>
+  <text x="680" y="368" class="name">视频任务</text>
+  <text x="680" y="387" class="desc">motion director</text>
+  <text x="810" y="368" class="name">完成</text>
+  <text x="810" y="387" class="desc">clips</text>
+
+  <text x="165" y="505" class="name">Stage Guard / Context</text>
+  <text x="165" y="524" class="desc">校验 sourceVersions</text>
+  <text x="165" y="539" class="desc">只暴露允许的上游文件与输出文件</text>
+
+  <text x="380" y="505" class="name">单次模型生成</text>
+  <text x="380" y="524" class="desc">Custom / Anthropic / OpenAI / Mock</text>
+  <text x="380" y="539" class="desc">不是 tool-use loop</text>
+
+  <text x="600" y="505" class="name">Normalize / Validate</text>
+  <text x="600" y="524" class="desc">结构化 AgentRunResponse</text>
+  <text x="600" y="539" class="desc">过滤越权文件、验证阶段契约</text>
+
+  <text x="250" y="650" class="name">Pending Patches</text>
+  <text x="250" y="669" class="desc">完整文件 after，不直接写入</text>
+  <text x="250" y="684" class="desc">origin = stage + generationJobId</text>
+
+  <text x="465" y="650" class="name">人工审稿 / 修改</text>
+  <text x="465" y="669" class="desc">预览 diff · 再生成 · 手工编辑</text>
+  <text x="465" y="684" class="desc">Human-in-the-loop</text>
+
+  <text x="680" y="650" class="name">确认事务</text>
+  <text x="680" y="669" class="desc">合并 patch · 锁定版本</text>
+  <text x="680" y="684" class="desc">解锁下一阶段</text>
+
+  <text x="455" y="790" class="name">Workspace + production_flow.json</text>
+  <text x="455" y="810" class="desc">locked / generating / ready_for_review / confirmed / stale / failed</text>
+  <text x="455" y="825" class="desc">当前编排的唯一状态来源在浏览器 localStorage</text>
+
+  <text x="780" y="790" class="name">媒体后处理</text>
+  <text x="780" y="809" class="desc">角色 / 场景：图片生成</text>
+  <text x="780" y="824" class="desc">视频：客户端并发提交与轮询</text>
+  <text x="780" y="839" class="desc">它们不是独立 Agent</text>
+
+  <!-- Side loop labels -->
+  <text x="1030" y="350" class="name">Build Prompt</text>
+  <text x="1030" y="369" class="desc">workflow skill + tools</text>
+  <text x="1030" y="384" class="desc">context budget</text>
+
+  <text x="1032.5" y="455" class="name">callModel</text>
+  <text x="1032.5" y="474" class="desc">统一模型网关</text>
+  <text x="1032.5" y="489" class="desc">tool schemas + fallback</text>
+
+  <text x="1260" y="459" class="name">tool_use?</text>
+  <text x="1260" y="477" class="desc">stop reason</text>
+
+  <text x="1090" y="575" class="name">Tool Scheduler</text>
+  <text x="1090" y="594" class="desc">读工具并行</text>
+  <text x="1090" y="609" class="desc">副作用工具串行</text>
+
+  <text x="1015" y="699" class="name">Read-only</text>
+  <text x="1015" y="718" class="desc">list / read file</text>
+  <text x="1015" y="733" class="desc">read skill</text>
+
+  <text x="1165" y="699" class="name">Side effects</text>
+  <text x="1165" y="718" class="desc">write patch / compliance</text>
+  <text x="1165" y="733" class="desc">render / spawn</text>
+
+  <text x="1312.5" y="699" class="name">Subagent</text>
+  <text x="1312.5" y="718" class="desc">隔离上下文</text>
+  <text x="1312.5" y="733" class="desc">一次 callModel · 无工具</text>
+
+  <text x="1312.5" y="846" class="name">Assemble Response</text>
+  <text x="1312.5" y="865" class="desc">patches · toolEvents</text>
+  <text x="1312.5" y="880" class="desc">agentEvents · compliance</text>
+
+  <!-- Risk labels -->
+  <text x="265" y="1047" class="risk">核心不是“多 Agent 团队”，而是浏览器状态机</text>
+  <text x="265" y="1065" class="risk">驱动五个确定性阶段，每阶段一次 LLM 生成</text>
+
+  <text x="720" y="1047" class="risk">Agent 控制台里的角色事件不等于独立 Agent 在运行</text>
+  <text x="720" y="1065" class="risk">没有 spawn 记录时，部分 agentEvents 会由 patch 类型推导</text>
+
+  <text x="1175" y="1047" class="risk">Subagent 目前是隔离的一次模型调用：无工具、无循环</text>
+  <text x="1175" y="1065" class="risk">它能给建议，但不能自行读取 workspace 或落地产物</text>
+
+  <!-- Legend -->
+  <g transform="translate(30,1130)">
+    <line x1="0" y1="-4" x2="48" y2="-4" stroke="#34d399" stroke-width="2.2" marker-end="url(#a-green)"/>
+    <text x="58" y="0" class="legend">当前主链路</text>
+    <line x1="180" y1="-4" x2="228" y2="-4" stroke="#94a3b8" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#a-slate)"/>
+    <text x="238" y="0" class="legend">可选 Agent Loop</text>
+    <rect x="390" y="-12" width="14" height="14" rx="2" class="violet"/>
+    <text x="414" y="0" class="legend">状态 / 待审资产</text>
+    <rect x="570" y="-12" width="14" height="14" rx="2" class="orange"/>
+    <text x="594" y="0" class="legend">媒体 / 子任务</text>
+    <rect x="730" y="-12" width="14" height="14" rx="2" class="rose"/>
+    <text x="754" y="0" class="legend">误区 / 风险</text>
+  </g>
+</svg>

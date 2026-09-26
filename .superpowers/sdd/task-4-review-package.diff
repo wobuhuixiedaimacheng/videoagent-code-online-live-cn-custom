@@ -1,0 +1,1291 @@
+diff --git a/.superpowers/sdd/task-4-before/lib/types.ts b/lib/types.ts
+index 53776b7..f58b05c 100644
+--- a/.superpowers/sdd/task-4-before/lib/types.ts
++++ b/lib/types.ts
+@@ -248,6 +248,9 @@ export type AgentRunRequest = {
+   workspace: WorkspaceSnapshot;
+   history: AgentMessage[];
+   workflow?: WorkflowKind;
++  productionStage?: ProductionStageId;
++  generationJobId?: string;
++  sourceVersions?: Record<string, number>;
+ };
+ 
+ export type AgentRunResponse = {
+diff --git a/.superpowers/sdd/task-4-before/lib/stageGeneration.ts b/lib/stageGeneration.ts
+index e69de29..06fd0db 100644
+--- a/.superpowers/sdd/task-4-before/lib/stageGeneration.ts
++++ b/lib/stageGeneration.ts
+@@ -0,0 +1,68 @@
++import type { PatchOperation, ProductionStageId, WorkflowKind, WorkspaceSnapshot } from './types';
++
++export type StageGenerationConfig = {
++  workflow: WorkflowKind;
++  outputFiles: string[];
++};
++
++const STAGE_CONFIG = {
++  script: { workflow: 'script', outputFiles: ['brief.json', 'campaign_goal.json', 'script.md'] },
++  character: { workflow: 'prompt', outputFiles: ['characters.json'] },
++  scene: { workflow: 'scene', outputFiles: ['scenes.json'] },
++  storyboard: { workflow: 'shot', outputFiles: ['storyboard.json', 'timeline.json'] },
++  video: { workflow: 'prompt', outputFiles: ['asset_prompts.json', 'video_spec.json'] }
++} as const;
++
++const STAGE_SOURCE_FILES: Record<ProductionStageId, string[]> = {
++  script: [],
++  character: ['script.md'],
++  scene: ['script.md', 'characters.json'],
++  storyboard: ['script.md', 'characters.json', 'scenes.json'],
++  video: ['script.md', 'characters.json', 'scenes.json', 'storyboard.json']
++};
++
++export function stageSourceFiles(stage: ProductionStageId): string[] {
++  return [...STAGE_SOURCE_FILES[stage]];
++}
++
++export function stageConfig(stage: ProductionStageId): StageGenerationConfig {
++  const config = STAGE_CONFIG[stage];
++  return { workflow: config.workflow, outputFiles: [...config.outputFiles] };
++}
++
++export function sourceVersionsForStage(workspace: WorkspaceSnapshot, stage: ProductionStageId): Record<string, number> {
++  const sourceFiles = new Set(stageSourceFiles(stage));
++  return Object.fromEntries(
++    workspace.files
++      .filter((file) => sourceFiles.has(file.path))
++      .map((file) => [file.path, file.version])
++  );
++}
++
++export function stageGenerationInstruction(stage: ProductionStageId, videoSpecText: string): string {
++  const config = stageConfig(stage);
++  const common = `\n阶段隔离规则：本次 productionStage 固定为 ${stage}。只允许提交 ${config.outputFiles.join('、')} 的完整文件 patch；不得通过按钮文案、用户措辞或其他线索推断或切换阶段，也不得补齐其他制作包文件。`;
++
++  if (stage === 'character') {
++    return `${common}\ncharacters.json 必须包含至少一个必需角色，并为每个角色给出年龄变体、每个变体的服装、Face ID 或明确参考策略、表情范围、主图图片提示词和避免项。`;
++  }
++  if (stage === 'scene') {
++    return `${common}\nscenes.json 的每个场景必须包含地点、时间、光线、色彩、出场角色、对应脚本段落和主图提示词。`;
++  }
++  if (stage === 'video') {
++    return `${common}\n只使用已确认的 script.md、characters.json、scenes.json、storyboard.json 及请求携带的 sourceVersions，不得重写上游资产。当前视频规格：${videoSpecText || '未提供，使用请求中的规格。'}`;
++  }
++  if (stage === 'storyboard') {
++    return `${common}\nstoryboard.json 和 timeline.json 必须只从已确认脚本、角色和场景继续拆解镜头、时长和剪辑节奏。`;
++  }
++  return `${common}\nbrief.json、campaign_goal.json 和 script.md 必须保持同一创意方向，只生成可审查的脚本阶段资产。`;
++}
++
++export function filterStagePatches(stage: ProductionStageId, patches: PatchOperation[]): PatchOperation[] {
++  const allowed = new Set(stageConfig(stage).outputFiles);
++  return patches.filter((patch) => allowed.has(patch.filePath));
++}
++
++export function isProductionStageFile(path: string): boolean {
++  return Object.values(STAGE_CONFIG).some((config) => (config.outputFiles as readonly string[]).includes(path));
++}
+diff --git a/.superpowers/sdd/task-4-before/lib/stageGeneration.test.cjs b/lib/stageGeneration.test.cjs
+index e69de29..ebf5f11 100644
+--- a/.superpowers/sdd/task-4-before/lib/stageGeneration.test.cjs
++++ b/lib/stageGeneration.test.cjs
+@@ -0,0 +1,570 @@
++const assert = require('node:assert/strict');
++const fs = require('node:fs');
++const path = require('node:path');
++const test = require('node:test');
++const ts = require('typescript');
++const { workspaceWith } = require('./testFixtures.cjs');
++
++function loadTypeScriptModule(fileName) {
++  const filePath = path.join(__dirname, fileName);
++  const source = fs.readFileSync(filePath, 'utf8');
++  const output = ts.transpileModule(source, {
++    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 }
++  }).outputText;
++  const module = { exports: {} };
++  const vm = require('node:vm');
++  vm.runInNewContext(output, { module, exports: module.exports, require }, { filename: filePath });
++  return module.exports;
++}
++
++function installTypeScriptLoader() {
++  const previous = require.extensions['.ts'];
++  require.extensions['.ts'] = (module, filePath) => {
++    const source = fs.readFileSync(filePath, 'utf8');
++    const output = ts.transpileModule(source, {
++      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 }
++    }).outputText;
++    module._compile(output, filePath);
++  };
++  return () => {
++    if (previous) require.extensions['.ts'] = previous;
++    else delete require.extensions['.ts'];
++  };
++}
++
++function sourceVersions(workspace, paths) {
++  return Object.fromEntries(paths.map((filePath) => [
++    filePath,
++    workspace.files.find((file) => file.path === filePath).version
++  ]));
++}
++
++async function withEnv(values, action) {
++  const previous = Object.fromEntries(Object.keys(values).map((key) => [key, process.env[key]]));
++  for (const [key, value] of Object.entries(values)) {
++    if (value === undefined) delete process.env[key];
++    else process.env[key] = value;
++  }
++  try {
++    return await action();
++  } finally {
++    for (const [key, value] of Object.entries(previous)) {
++      if (value === undefined) delete process.env[key];
++      else process.env[key] = value;
++    }
++  }
++}
++
++async function withCustomModelResponse(rawResponse, action) {
++  const previousFetch = global.fetch;
++  let capturedBody = '';
++  global.fetch = async (_url, init) => {
++    capturedBody = String(init.body || '');
++    return new Response(JSON.stringify({
++      choices: [{ message: { content: JSON.stringify(rawResponse) } }]
++    }), { status: 200, headers: { 'content-type': 'application/json' } });
++  };
++  try {
++    return await withEnv({
++      VIDEOAGENT_FORCE_MOCK: undefined,
++      DEMO_MODE: undefined,
++      AGENT_LOOP: undefined,
++      DEFAULT_PROVIDER: 'custom',
++      CUSTOM_API_KEY: 'test-key',
++      CUSTOM_BASE_URL: 'http://provider.test/v1',
++      OPENAI_API_KEY: undefined,
++      ANTHROPIC_API_KEY: undefined
++    }, () => action(() => capturedBody));
++  } finally {
++    global.fetch = previousFetch;
++  }
++}
++
++function validCharacterDraft(name = '最终角色') {
++  return JSON.stringify({
++    characters: [{
++      id: 'lead_01', name, role: '主角', required: true,
++      description: '可生成图片的角色草稿', faceAnchorVariantId: 'adult', referenceStrategy: 'face_id',
++      faceIdStrategy: '复用已确认 Face ID。', imagePrompt: '主角人物主图，真实自然光。',
++      expressionIds: ['喜悦', '愤怒', '悲伤', '恐惧', '惊讶', '厌恶', '害羞', '紧张', '疑惑', '尴尬', '期待', '平静'],
++      expressionRange: '覆盖十二种可审查表情。', consistencyPrompt: '保持 Face ID 一致。', negativePrompt: '不要换脸。',
++      variants: [{
++        id: 'adult', label: '成年', ageLabel: '26 岁', wardrobe: '日常服装', primaryImageUrl: '',
++        primaryImagePrompt: '成年主角正面半身，真实自然光。'
++      }]
++    }]
++  });
++}
++
++function storyboardScenes(count) {
++  return Array.from({ length: count }, (_, index) => ({
++    id: `shot-${index + 1}`,
++    title: `镜头 ${index + 1}`,
++    visual: `第 ${index + 1} 个已确认镜头画面`,
++    subtitle: `第 ${index + 1} 个字幕`,
++    durationSeconds: 3
++  }));
++}
++
++function confirmedScenes(count) {
++  return storyboardScenes(count).map((scene, index) => ({
++    ...scene,
++    start: index * 3,
++    end: index * 3 + 3,
++    scriptSegment: `第 ${index + 1} 段已确认脚本`,
++    narration: `第 ${index + 1} 段旁白`
++  }));
++}
++
++test('each stage has an explicit workflow and output allowlist', () => {
++  const { stageConfig } = loadTypeScriptModule('stageGeneration.ts');
++  assert.deepEqual(Array.from(stageConfig('script').outputFiles), ['brief.json', 'campaign_goal.json', 'script.md']);
++  assert.deepEqual(Array.from(stageConfig('character').outputFiles), ['characters.json']);
++  assert.deepEqual(Array.from(stageConfig('scene').outputFiles), ['scenes.json']);
++  assert.deepEqual(Array.from(stageConfig('storyboard').outputFiles), ['storyboard.json', 'timeline.json']);
++  assert.deepEqual(Array.from(stageConfig('video').outputFiles), ['asset_prompts.json', 'video_spec.json']);
++});
++
++test('stage instructions define the required character, scene, and video contracts', () => {
++  const { stageGenerationInstruction } = loadTypeScriptModule('stageGeneration.ts');
++  assert.match(stageGenerationInstruction('character', ''), /必需角色/);
++  assert.match(stageGenerationInstruction('character', ''), /Face ID/);
++  assert.match(stageGenerationInstruction('scene', ''), /地点、时间、光线、色彩/);
++  assert.match(stageGenerationInstruction('video', '720p'), /已确认的 script\.md、characters\.json、scenes\.json、storyboard\.json/);
++});
++
++test('source versions are limited to each stage confirmed upstream inputs', () => {
++  const { sourceVersionsForStage } = loadTypeScriptModule('stageGeneration.ts');
++  const versions = sourceVersionsForStage(workspaceWith({
++    'script.md': '# 脚本',
++    'characters.json': '{"characters":[]}',
++    'scenes.json': '{"scenes":[]}',
++    'storyboard.json': '{"scenes":[]}',
++    'publish_copy.json': '{}'
++  }), 'video');
++  assert.deepEqual(JSON.parse(JSON.stringify(versions)), { 'script.md': 1, 'characters.json': 2, 'scenes.json': 3, 'storyboard.json': 4 });
++});
++
++test('character generation cannot return scene or video task patches', async () => {
++  const restore = installTypeScriptLoader();
++  try {
++    const { runVideoAgent } = require('./agentProvider.ts');
++    const result = await runVideoAgent({
++      instruction: '从已确认脚本生成角色资产',
++      workspace: workspaceWith({ 'script.md': '# 测试脚本' }),
++      history: [],
++      workflow: 'prompt',
++      productionStage: 'character',
++      generationJobId: 'character-job-1',
++      sourceVersions: { 'script.md': 1 }
++    });
++    assert.deepEqual(result.patchOperations.map((patch) => patch.filePath), ['characters.json']);
++    assert.match(result.patchOperations[0].after, /"characters"/);
++  } finally {
++    restore();
++  }
++});
++
++test('video generation reads confirmed source versions and only returns the task package', async () => {
++  const restore = installTypeScriptLoader();
++  try {
++    const { runVideoAgent } = require('./agentProvider.ts');
++    const result = await runVideoAgent({
++      instruction: '从已确认制作包准备视频任务',
++      workspace: workspaceWith({
++        'script.md': '# 测试脚本',
++        'characters.json': '{"characters":[]}',
++        'scenes.json': '{"scenes":[]}',
++        'storyboard.json': '{"scenes":[]}'
++      }),
++      history: [],
++      workflow: 'prompt',
++      productionStage: 'video',
++      generationJobId: 'video-job-1',
++      sourceVersions: { 'script.md': 1, 'characters.json': 2, 'scenes.json': 3, 'storyboard.json': 4 }
++    });
++    assert.deepEqual(result.patchOperations.map((patch) => patch.filePath).sort(), ['asset_prompts.json', 'video_spec.json']);
++    const assetPrompts = JSON.parse(result.patchOperations.find((patch) => patch.filePath === 'asset_prompts.json').after);
++    assert.deepEqual(assetPrompts.confirmedSourceVersions, { 'script.md': 1, 'characters.json': 2, 'scenes.json': 3, 'storyboard.json': 4 });
++    assert.match(assetPrompts.confirmedSourceInputs.scriptExcerpt, /测试脚本/);
++    assert.equal(assetPrompts.confirmedSourceInputs.storyboardSceneCount, 0);
++  } finally {
++    restore();
++  }
++});
++
++test('a production-stage request bypasses AGENT_LOOP and remains stage-scoped', async () => {
++  const restore = installTypeScriptLoader();
++  try {
++    const { runVideoAgent } = require('./agentProvider.ts');
++    const workspace = workspaceWith({ 'script.md': '# 角色脚本' });
++    const result = await withEnv({
++      AGENT_LOOP: '1', VIDEOAGENT_FORCE_MOCK: undefined, DEMO_MODE: undefined,
++      DEFAULT_PROVIDER: undefined, CUSTOM_API_KEY: undefined, CUSTOM_BASE_URL: undefined,
++      OPENAI_API_KEY: undefined, ANTHROPIC_API_KEY: undefined
++    }, () => runVideoAgent({
++      instruction: '生成角色资产', workspace, history: [], productionStage: 'character',
++      generationJobId: 'character-loop-job', sourceVersions: sourceVersions(workspace, ['script.md'])
++    }));
++    assert.deepEqual(result.patchOperations.map((patch) => patch.filePath), ['characters.json']);
++  } finally {
++    restore();
++  }
++});
++
++test('stage fallback rejects source version mismatches before reading a draft workspace file', async () => {
++  const restore = installTypeScriptLoader();
++  try {
++    const { runVideoAgent } = require('./agentProvider.ts');
++    const workspace = workspaceWith({ 'script.md': '# UNCONFIRMED-v99' });
++    await withEnv({ VIDEOAGENT_FORCE_MOCK: 'true' }, async () => {
++      await assert.rejects(
++        () => runVideoAgent({
++          instruction: '生成角色资产', workspace, history: [], productionStage: 'character',
++          generationJobId: 'character-mismatch', sourceVersions: { 'script.md': 99 }
++        }),
++        /sourceVersions.*script\.md/
++      );
++    });
++  } finally {
++    restore();
++  }
++});
++
++test('stage model request rejects version mismatches before making a provider call', async () => {
++  const restore = installTypeScriptLoader();
++  try {
++    const { runVideoAgent } = require('./agentProvider.ts');
++    const workspace = workspaceWith({ 'script.md': '# UNCONFIRMED-v99' });
++    let fetchCalled = false;
++    const previousFetch = global.fetch;
++    global.fetch = async () => {
++      fetchCalled = true;
++      throw new Error('provider must not be called');
++    };
++    try {
++      await withEnv({
++        DEFAULT_PROVIDER: 'custom', CUSTOM_API_KEY: 'test-key', CUSTOM_BASE_URL: 'http://provider.test/v1',
++        VIDEOAGENT_FORCE_MOCK: undefined, DEMO_MODE: undefined, AGENT_LOOP: undefined
++      }, async () => {
++        await assert.rejects(
++          () => runVideoAgent({
++            instruction: '生成角色资产', workspace, history: [], productionStage: 'character',
++            generationJobId: 'character-model-mismatch', sourceVersions: { 'script.md': 99 }
++          }),
++          /sourceVersions.*script\.md/
++        );
++      });
++    } finally {
++      global.fetch = previousFetch;
++    }
++    assert.equal(fetchCalled, false);
++  } finally {
++    restore();
++  }
++});
++
++test('stage model prompt includes only confirmed stage inputs', async () => {
++  const restore = installTypeScriptLoader();
++  try {
++    const { runVideoAgent } = require('./agentProvider.ts');
++    const workspace = workspaceWith({
++      'script.md': '# 已确认角色脚本',
++      '.aigc/pending_patches.json': 'UNCONFIRMED-PENDING',
++      'asset_prompts.json': 'UNCONFIRMED-DOWNSTREAM'
++    });
++    await withCustomModelResponse({}, async (capturedBody) => {
++      const result = await runVideoAgent({
++        instruction: '生成角色资产', workspace, history: [], productionStage: 'character',
++        generationJobId: 'character-model-inputs', sourceVersions: { 'script.md': 1 }
++      });
++      assert.deepEqual(result.patchOperations.map((patch) => patch.filePath), ['characters.json']);
++      assert.match(capturedBody(), /已确认角色脚本/);
++      assert.doesNotMatch(capturedBody(), /UNCONFIRMED-PENDING|UNCONFIRMED-DOWNSTREAM|pending_patches/);
++    });
++  } finally {
++    restore();
++  }
++});
++
++test('video model prompt includes only the four confirmed upstream files', async () => {
++  const restore = installTypeScriptLoader();
++  try {
++    const { runVideoAgent } = require('./agentProvider.ts');
++    const workspace = workspaceWith({
++      'script.md': '# 已确认视频脚本',
++      'characters.json': validCharacterDraft(),
++      'scenes.json': JSON.stringify({ scenes: [] }),
++      'storyboard.json': JSON.stringify({ scenes: [] }),
++      '.aigc/pending_patches.json': 'UNCONFIRMED-PENDING',
++      'asset_prompts.json': 'UNCONFIRMED-DOWNSTREAM'
++    });
++    await withCustomModelResponse({}, async (capturedBody) => {
++      await runVideoAgent({
++        instruction: '准备视频任务', workspace, history: [], productionStage: 'video',
++        generationJobId: 'video-model-inputs', sourceVersions: sourceVersions(workspace, ['script.md', 'characters.json', 'scenes.json', 'storyboard.json'])
++      });
++      assert.match(capturedBody(), /已确认视频脚本/);
++      assert.doesNotMatch(capturedBody(), /UNCONFIRMED-PENDING|UNCONFIRMED-DOWNSTREAM|pending_patches/);
++    });
++  } finally {
++    restore();
++  }
++});
++
++test('model stage patches dedupe by file path with the last allowed patch winning', async () => {
++  const restore = installTypeScriptLoader();
++  try {
++    const { runVideoAgent } = require('./agentProvider.ts');
++    const workspace = workspaceWith({ 'script.md': '# 已确认角色脚本' });
++    await withCustomModelResponse({
++      patchOperations: [
++        { filePath: 'characters.json', after: validCharacterDraft('第一个角色') },
++        { filePath: 'scenes.json', after: '{"scenes":[]}' },
++        { filePath: 'characters.json', after: validCharacterDraft('最终角色') }
++      ]
++    }, async () => {
++      const result = await runVideoAgent({
++        instruction: '生成角色资产', workspace, history: [], productionStage: 'character',
++        generationJobId: 'character-duplicate-patches', sourceVersions: { 'script.md': 1 }
++      });
++      assert.deepEqual(result.patchOperations.map((patch) => patch.filePath), ['characters.json']);
++      assert.match(result.patchOperations[0].after, /最终角色/);
++    });
++  } finally {
++    restore();
++  }
++});
++
++test('character and scene fallbacks remain image-generation-ready drafts without fabricated URLs', async () => {
++  const restore = installTypeScriptLoader();
++  try {
++    const { runVideoAgent } = require('./agentProvider.ts');
++    const characterWorkspace = workspaceWith({
++      'script.md': '# 成长故事\n幼儿园、小学、初中、高中、大学的同一主角。'
++    });
++    const characterResult = await runVideoAgent({
++      instruction: '生成角色资产', workspace: characterWorkspace, history: [], productionStage: 'character',
++      generationJobId: 'character-life-stages', sourceVersions: { 'script.md': 1 }
++    });
++    const character = JSON.parse(characterResult.patchOperations[0].after).characters[0];
++    assert.deepEqual(character.variants.map((variant) => variant.id), ['kindergarten', 'primary', 'middle', 'high', 'college']);
++    assert.ok(character.variants.every((variant) => variant.primaryImageUrl === '' && variant.primaryImagePrompt));
++    assert.deepEqual(character.expressionIds, ['喜悦', '愤怒', '悲伤', '恐惧', '惊讶', '厌恶', '害羞', '紧张', '疑惑', '尴尬', '期待', '平静']);
++    assert.match(character.expressionRange, /喜悦.*平静/);
++
++    const sceneWorkspace = workspaceWith({ 'script.md': '# 场景脚本', 'characters.json': validCharacterDraft() });
++    const sceneResult = await runVideoAgent({
++      instruction: '生成场景资产', workspace: sceneWorkspace, history: [], productionStage: 'scene',
++      generationJobId: 'scene-draft', sourceVersions: sourceVersions(sceneWorkspace, ['script.md', 'characters.json'])
++    });
++    const scene = JSON.parse(sceneResult.patchOperations[0].after).scenes[0];
++    assert.ok(scene.location && scene.timeOfDay && scene.lighting && scene.palette && scene.prompt);
++    assert.deepEqual(scene.characterIds, ['lead_01']);
++    assert.equal(scene.referenceImageUrl, '');
++  } finally {
++    restore();
++  }
++});
++
++test('an incomplete model scene patch is replaced by the deterministic image-ready draft', async () => {
++  const restore = installTypeScriptLoader();
++  try {
++    const { runVideoAgent } = require('./agentProvider.ts');
++    const workspace = workspaceWith({ 'script.md': '# 场景脚本', 'characters.json': validCharacterDraft() });
++    await withCustomModelResponse({ patchOperations: [{ filePath: 'scenes.json', after: '{"scenes":[{"id":"bad"}]}' }] }, async () => {
++      const result = await runVideoAgent({
++        instruction: '生成场景资产', workspace, history: [], productionStage: 'scene',
++        generationJobId: 'scene-invalid-model', sourceVersions: sourceVersions(workspace, ['script.md', 'characters.json'])
++      });
++      const scene = JSON.parse(result.patchOperations[0].after).scenes[0];
++      assert.ok(scene.location && scene.timeOfDay && scene.lighting && scene.palette && scene.prompt);
++    });
++  } finally {
++    restore();
++  }
++});
++
++test('an incomplete model character patch is replaced by the deterministic image-ready draft', async () => {
++  const restore = installTypeScriptLoader();
++  try {
++    const { runVideoAgent } = require('./agentProvider.ts');
++    const workspace = workspaceWith({ 'script.md': '# 角色脚本' });
++    await withCustomModelResponse({ patchOperations: [{ filePath: 'characters.json', after: '{"characters":[{"required":true}]}' }] }, async () => {
++      const result = await runVideoAgent({
++        instruction: '生成角色资产', workspace, history: [], productionStage: 'character',
++        generationJobId: 'character-invalid-model', sourceVersions: { 'script.md': 1 }
++      });
++      const character = JSON.parse(result.patchOperations[0].after).characters[0];
++      assert.ok(character.consistencyPrompt && character.negativePrompt);
++      assert.ok(character.variants.every((variant) => variant.primaryImagePrompt));
++      assert.equal(character.primaryImageUrl, undefined);
++    });
++  } finally {
++    restore();
++  }
++});
++
++test('storyboard fallback gives every shot a positive duration accepted by the canonical validator', async () => {
++  const restore = installTypeScriptLoader();
++  try {
++    const { runVideoAgent } = require('./agentProvider.ts');
++    const { validateStageAssets } = loadTypeScriptModule('productionAssets.ts');
++    const workspace = workspaceWith({
++      'script.md': '# 分镜脚本', 'characters.json': validCharacterDraft(),
++      'scenes.json': JSON.stringify({ scenes: confirmedScenes(1) })
++    });
++    const result = await runVideoAgent({
++      instruction: '生成分镜资产', workspace, history: [], productionStage: 'storyboard',
++      generationJobId: 'storyboard-durations', sourceVersions: sourceVersions(workspace, ['script.md', 'characters.json', 'scenes.json'])
++    });
++    const storyboard = result.patchOperations.find((patch) => patch.filePath === 'storyboard.json');
++    const patchedWorkspace = {
++      ...workspace,
++      files: [...workspace.files, { path: 'storyboard.json', kind: 'json', content: storyboard.after, version: 4, updatedAt: '2026-07-11T12:00:00.000Z' }]
++    };
++    assert.ok(JSON.parse(storyboard.after).scenes.every((scene) => scene.durationSeconds > 0));
++    assert.deepEqual(Array.from(validateStageAssets('storyboard', patchedWorkspace)), []);
++  } finally {
++    restore();
++  }
++});
++
++test('video fallback and model recovery preserve all twelve confirmed storyboard shots as video tasks', async () => {
++  const restore = installTypeScriptLoader();
++  try {
++    const { runVideoAgent } = require('./agentProvider.ts');
++    const workspace = workspaceWith({
++      'script.md': '# 十二镜脚本',
++      'characters.json': validCharacterDraft(),
++      'scenes.json': JSON.stringify({ scenes: storyboardScenes(12) }),
++      'storyboard.json': JSON.stringify({ scenes: storyboardScenes(12) })
++    });
++    const request = {
++      instruction: '从已确认制作包准备视频任务', workspace, history: [], productionStage: 'video',
++      generationJobId: 'video-twelve-shots', sourceVersions: sourceVersions(workspace, ['script.md', 'characters.json', 'scenes.json', 'storyboard.json'])
++    };
++    const fallback = await runVideoAgent(request);
++    const fallbackPackage = JSON.parse(fallback.patchOperations.find((patch) => patch.filePath === 'asset_prompts.json').after);
++    assert.equal(fallbackPackage.prompts.length, 12);
++    assert.equal(fallbackPackage.renderQueue.length, 12);
++    assert.ok(fallbackPackage.prompts.every((prompt) => prompt.type === 'video'));
++
++    await withCustomModelResponse({
++      patchOperations: [{ filePath: 'asset_prompts.json', after: JSON.stringify({ prompts: [{ id: 'too-few', type: 'video' }], renderQueue: [] }) }]
++    }, async () => {
++      const recovered = await runVideoAgent({ ...request, generationJobId: 'video-twelve-model' });
++      const recoveredPackage = JSON.parse(recovered.patchOperations.find((patch) => patch.filePath === 'asset_prompts.json').after);
++      assert.equal(recoveredPackage.prompts.length, 12);
++      assert.equal(recoveredPackage.renderQueue.length, 12);
++      assert.ok(recoveredPackage.prompts.every((prompt) => prompt.type === 'video'));
++    });
++  } finally {
++    restore();
++  }
++});
++
++test('ID-less model character and scene patches are replaced with stable deterministic asset IDs', async () => {
++  const restore = installTypeScriptLoader();
++  try {
++    const { runVideoAgent } = require('./agentProvider.ts');
++    const characterWorkspace = workspaceWith({ 'script.md': '# 角色脚本' });
++    const idlessCharacter = JSON.parse(validCharacterDraft());
++    delete idlessCharacter.characters[0].id;
++    await withCustomModelResponse({ patchOperations: [{ filePath: 'characters.json', after: JSON.stringify(idlessCharacter) }] }, async () => {
++      const result = await runVideoAgent({
++        instruction: '生成角色资产', workspace: characterWorkspace, history: [], productionStage: 'character',
++        generationJobId: 'character-idless-model', sourceVersions: { 'script.md': 1 }
++      });
++      assert.equal(JSON.parse(result.patchOperations[0].after).characters[0].id, 'lead_01');
++    });
++
++    const sceneWorkspace = workspaceWith({ 'script.md': '# 场景脚本', 'characters.json': validCharacterDraft() });
++    const idlessScene = {
++      title: '无 ID 场景', visual: '真实画面', location: '教室', timeOfDay: '白天', lighting: '自然光', palette: '暖色',
++      characterIds: ['lead_01'], scriptSegment: '已确认脚本段落', mainImagePrompt: '教室里的主角', prompt: '教室里的主角', referenceImageUrl: ''
++    };
++    await withCustomModelResponse({ patchOperations: [{ filePath: 'scenes.json', after: JSON.stringify({ scenes: [idlessScene] }) }] }, async () => {
++      const result = await runVideoAgent({
++        instruction: '生成场景资产', workspace: sceneWorkspace, history: [], productionStage: 'scene',
++        generationJobId: 'scene-idless-model', sourceVersions: sourceVersions(sceneWorkspace, ['script.md', 'characters.json'])
++      });
++      assert.equal(JSON.parse(result.patchOperations[0].after).scenes[0].id, 'scene_01');
++    });
++  } finally {
++    restore();
++  }
++});
++
++test('model character and scene patches missing required textual fields are replaced', async () => {
++  const restore = installTypeScriptLoader();
++  try {
++    const { runVideoAgent } = require('./agentProvider.ts');
++    const characterWorkspace = workspaceWith({ 'script.md': '# 角色脚本' });
++    const incompleteCharacter = JSON.parse(validCharacterDraft());
++    delete incompleteCharacter.characters[0].faceIdStrategy;
++    delete incompleteCharacter.characters[0].expressionRange;
++    delete incompleteCharacter.characters[0].imagePrompt;
++    await withCustomModelResponse({ patchOperations: [{ filePath: 'characters.json', after: JSON.stringify(incompleteCharacter) }] }, async () => {
++      const result = await runVideoAgent({
++        instruction: '生成角色资产', workspace: characterWorkspace, history: [], productionStage: 'character',
++        generationJobId: 'character-missing-text-model', sourceVersions: { 'script.md': 1 }
++      });
++      const character = JSON.parse(result.patchOperations[0].after).characters[0];
++      assert.ok(character.faceIdStrategy && character.expressionRange && character.imagePrompt);
++    });
++
++    const sceneWorkspace = workspaceWith({ 'script.md': '# 场景脚本', 'characters.json': validCharacterDraft() });
++    const incompleteScene = {
++      id: 'scene-model', title: '缺字段场景', visual: '真实画面', location: '教室', timeOfDay: '白天', lighting: '自然光', palette: '暖色',
++      characterIds: ['lead_01'], prompt: '教室里的主角', referenceImageUrl: ''
++    };
++    await withCustomModelResponse({ patchOperations: [{ filePath: 'scenes.json', after: JSON.stringify({ scenes: [incompleteScene] }) }] }, async () => {
++      const result = await runVideoAgent({
++        instruction: '生成场景资产', workspace: sceneWorkspace, history: [], productionStage: 'scene',
++        generationJobId: 'scene-missing-text-model', sourceVersions: sourceVersions(sceneWorkspace, ['script.md', 'characters.json'])
++      });
++      const scene = JSON.parse(result.patchOperations[0].after).scenes[0];
++      assert.ok(scene.scriptSegment && scene.mainImagePrompt && scene.prompt);
++    });
++  } finally {
++    restore();
++  }
++});
++
++test('storyboard fallback preserves all confirmed scenes and fails closed for unusable scene input', async () => {
++  const restore = installTypeScriptLoader();
++  try {
++    const { runVideoAgent } = require('./agentProvider.ts');
++    const sourceScenes = confirmedScenes(12);
++    const workspace = workspaceWith({
++      'script.md': '# 确认脚本', 'characters.json': validCharacterDraft(),
++      'scenes.json': JSON.stringify({ scenes: sourceScenes })
++    });
++    const result = await runVideoAgent({
++      instruction: '生成分镜资产', workspace, history: [], productionStage: 'storyboard',
++      generationJobId: 'storyboard-confirmed-scenes', sourceVersions: sourceVersions(workspace, ['script.md', 'characters.json', 'scenes.json'])
++    });
++    const storyboard = JSON.parse(result.patchOperations.find((patch) => patch.filePath === 'storyboard.json').after).scenes;
++    assert.equal(storyboard.length, 12);
++    assert.deepEqual(storyboard.map((scene) => scene.id), sourceScenes.map((scene) => scene.id));
++    assert.deepEqual(storyboard.map((scene) => scene.title), sourceScenes.map((scene) => scene.title));
++    assert.deepEqual(storyboard.map((scene) => scene.visual), sourceScenes.map((scene) => scene.visual));
++    assert.deepEqual(storyboard.map((scene) => scene.subtitle), sourceScenes.map((scene) => scene.subtitle));
++    assert.deepEqual(storyboard.map((scene) => scene.scriptSegment), sourceScenes.map((scene) => scene.scriptSegment));
++    assert.ok(storyboard.every((scene) => scene.durationSeconds > 0));
++
++    const unusableWorkspace = workspaceWith({
++      'script.md': '# 确认脚本', 'characters.json': validCharacterDraft(), 'scenes.json': '{"scenes":[]}'
++    });
++    await assert.rejects(
++      () => runVideoAgent({
++        instruction: '生成分镜资产', workspace: unusableWorkspace, history: [], productionStage: 'storyboard',
++        generationJobId: 'storyboard-unusable-scenes', sourceVersions: sourceVersions(unusableWorkspace, ['script.md', 'characters.json', 'scenes.json'])
++      }),
++      /confirmed scenes\.json/
++    );
++  } finally {
++    restore();
++  }
++});
+diff --git a/.superpowers/sdd/task-4-before/lib/agentProvider.ts b/lib/agentProvider.ts
+index cba5c41..e526c92 100644
+--- a/.superpowers/sdd/task-4-before/lib/agentProvider.ts
++++ b/lib/agentProvider.ts
+@@ -1,5 +1,6 @@
+ import { agentLoop } from './agentLoop';
+ import { callModel } from './modelGateway';
++import { filterStagePatches, stageConfig, stageGenerationInstruction, stageSourceFiles } from './stageGeneration';
+ import { agentRoster, getSkillByWorkflow, missionAssetsFromWorkspace } from './workspace';
+ import type {
+   AgentEvent,
+@@ -69,7 +70,8 @@ function id() {
+ }
+ 
+ function compactWorkspace(req: AgentRunRequest) {
+-  return req.workspace.files.map((file) => ({
++  const sourceFiles = req.productionStage ? new Set(stageSourceFiles(req.productionStage)) : null;
++  return req.workspace.files.filter((file) => !sourceFiles || sourceFiles.has(file.path)).map((file) => ({
+     path: file.path,
+     version: file.version,
+     kind: file.kind,
+@@ -77,7 +79,32 @@ function compactWorkspace(req: AgentRunRequest) {
+   }));
+ }
+ 
++function assertStageSourceVersions(req: AgentRunRequest) {
++  if (!req.productionStage) return;
++  const expectedFiles = stageSourceFiles(req.productionStage);
++  const requestedVersions = req.sourceVersions || {};
++  const expectedSet = new Set(expectedFiles);
++
++  for (const path of Object.keys(requestedVersions)) {
++    if (!expectedSet.has(path)) {
++      throw new Error(`productionStage ${req.productionStage} sourceVersions contains unexpected input: ${path}`);
++    }
++  }
++
++  for (const path of expectedFiles) {
++    const requestedVersion = requestedVersions[path];
++    const workspaceFile = req.workspace.files.find((file) => file.path === path);
++    if (!workspaceFile) {
++      throw new Error(`productionStage ${req.productionStage} sourceVersions requires missing input: ${path}`);
++    }
++    if (typeof requestedVersion !== 'number' || workspaceFile.version !== requestedVersion) {
++      throw new Error(`productionStage ${req.productionStage} sourceVersions mismatch for ${path}: requested ${String(requestedVersion)}, workspace ${workspaceFile.version}`);
++    }
++  }
++}
++
+ function inferWorkflow(req: AgentRunRequest): WorkflowKind {
++  if (req.productionStage) return stageConfig(req.productionStage).workflow;
+   if (req.workflow) return req.workflow;
+   const text = req.instruction.toLowerCase();
+   if (text.includes('/calendar') || text.includes('内容日历')) return 'calendar';
+@@ -115,6 +142,9 @@ function isPureQuestion(req: AgentRunRequest) {
+ function buildPrompt(req: AgentRunRequest) {
+   const workflow = inferWorkflow(req);
+   const skill = getSkillByWorkflow(workflow);
++  const stageInstruction = req.productionStage
++    ? stageGenerationInstruction(req.productionStage, JSON.stringify(videoSpecFromInstruction(req)))
++    : '';
+   return `你是 VideoAgent Code，一个 AI 原生 AIGC Mission Control 后端。
+ 
+ ${OUTPUT_LANGUAGE_POLICY}
+@@ -138,7 +168,10 @@ ${JSON.stringify(
+     mode: req.workspace.mode,
+     activeWorkflow: req.workspace.activeWorkflow,
+     currentTimelineVersion: req.workspace.currentTimelineVersion,
+-    complianceStatus: req.workspace.complianceStatus
++    complianceStatus: req.workspace.complianceStatus,
++    productionStage: req.productionStage || null,
++    generationJobId: req.generationJobId || null,
++    sourceVersions: req.sourceVersions || {}
+   },
+   null,
+   2
+@@ -164,6 +197,7 @@ Canonical workspace files:
+ - brief.json
+ - viral_refs.json
+ - campaign_goal.json
++- characters.json
+ - scenes.json
+ - script.md
+ - storyboard.json
+@@ -175,6 +209,7 @@ Canonical workspace files:
+ - compliance_report.json
+ - feedback_report.json
+ - video_spec.json
++- production_flow.json
+ - .aigc/MEMORY.md
+ 
+ Rules:
+@@ -192,6 +227,8 @@ Rules:
+ - Patch before/after 字段必须包含每个被修改文件的完整内容。
+ - 除非用户只是提问，否则必须至少包含一个 patchOperation。
+ 
++${stageInstruction}
++
+ ${JSON_GUARD}`;
+ }
+ 
+@@ -425,6 +462,8 @@ function normalizeResponse(
+     })
+     .filter((patch) => patch.after.trim().length > 0 && patch.after !== patch.before);
+ 
++  if (req.productionStage) patches = dedupePatchesByFilePath(filterStagePatches(req.productionStage, patches));
++
+   if (!isPureQuestion(req)) {
+     const ensurePatch = (filePath: string, after: string, summary: string, riskLevel: PatchOperation['riskLevel'] = 'low') => {
+       if (patches.some((patch) => patch.filePath === filePath)) return;
+@@ -449,47 +488,53 @@ function normalizeResponse(
+       patch.riskLevel = riskLevel;
+     };
+     const hasScenes = (content: string) => parseJson<{ scenes?: unknown[] }>(content, { scenes: [] }).scenes?.length || 0;
+-    const hasVideoTasks = (content: string) => {
+-      const parsed = parseJson<{
+-        prompts?: unknown[];
+-        renderQueue?: unknown[];
+-        characterConsistency?: { consistencyPrompt?: string; negativePrompt?: string };
+-      }>(content, {});
+-      return (
+-        Math.max(parsed.prompts?.length || 0, parsed.renderQueue?.length || 0) >= 3 &&
+-        Boolean(parsed.characterConsistency?.consistencyPrompt || parsed.characterConsistency?.negativePrompt)
+-      );
+-    };
+-
+-    ensurePatch('script.md', scriptFor(req, workflow), '系统补齐缺失的脚本资产：在线模型未提交 script.md');
+-    ensureValidPatch('scenes.json', scenesFor(req, workflow), (content) => hasScenes(content) >= 3, '系统补齐缺失的场景资产：保证分镜和视频任务可审查', 'medium');
+-    ensureValidPatch('storyboard.json', storyboardFor(req, workflow), (content) => hasScenes(content) >= 3, '系统补齐缺失的分镜资产：保证逐镜画面可调整', 'medium');
+-    ensurePatch('timeline.json', timelineFor(req, workflow), '系统补齐缺失的剪辑节奏资产', 'medium');
+-    ensurePatch('video_spec.json', videoSpecFileFor(req), '系统补齐缺失的视频规格资产');
+-    ensureValidPatch('asset_prompts.json', assetPromptsFor(req, workflow), hasVideoTasks, '系统补齐缺失的视频生成任务包：保证镜头任务、角色一致性和避免项可审查', 'medium');
+-    ensurePatch('publish_copy.json', publishCopyFor(req, workflow), '系统补齐缺失的发布文案资产');
+-    ensurePatch('compliance_report.json', complianceFor(req, workflow), '系统补齐缺失的合规检查资产', 'medium');
+-    ensurePatch('feedback_report.json', feedbackFor(req, workflow), '系统补齐缺失的人工反馈结构');
+-
+-    const ensuredFiles = [
+-      'script.md',
+-      'scenes.json',
+-      'storyboard.json',
+-      'timeline.json',
+-      'video_spec.json',
+-      'asset_prompts.json',
+-      'publish_copy.json',
+-      'compliance_report.json',
+-      'feedback_report.json'
+-    ].filter((filePath) => patches.some((patch) => patch.filePath === filePath));
+-
+-    toolEvents.push({
+-      id: id(),
+-      toolName: 'ensure_production_package',
+-      status: 'warning',
+-      title: '补齐制作包交付物',
+-      summary: `已校验 ${ensuredFiles.length} 个核心资产，确保脚本、分镜、角色一致性和视频任务可审查`
+-    });
++    const hasVideoTasks = (content: string) => hasVideoTaskPackage(req, content);
++
++    if (req.productionStage) {
++      const stage = req.productionStage;
++      if (stage === 'script') {
++        ensurePatch('brief.json', updatedBrief(req, workflow), '系统补齐脚本阶段 Brief');
++        ensurePatch('campaign_goal.json', campaignGoalFor(req, workflow), '系统补齐脚本阶段目标');
++        ensurePatch('script.md', scriptFor(req, workflow), '系统补齐脚本阶段脚本');
++      } else if (stage === 'character') {
++        ensureValidPatch('characters.json', charactersFor(req), hasCharacters, '系统补齐角色阶段角色资产', 'medium');
++      } else if (stage === 'scene') {
++        ensureValidPatch('scenes.json', scenesFor(req, workflow), hasSceneDraft, '系统补齐场景阶段场景资产', 'medium');
++      } else if (stage === 'storyboard') {
++        ensureValidPatch('storyboard.json', storyboardFor(req, workflow), hasStoryboardDraft, '系统补齐分镜阶段分镜资产', 'medium');
++        ensurePatch('timeline.json', timelineFor(req, workflow), '系统补齐分镜阶段剪辑节奏', 'medium');
++      } else {
++        ensurePatch('video_spec.json', videoSpecFileFor(req), '系统补齐视频阶段规格');
++        ensureValidPatch('asset_prompts.json', assetPromptsFor(req, workflow), hasVideoTasks, '系统补齐视频阶段生成任务包', 'medium');
++      }
++      patches = dedupePatchesByFilePath(filterStagePatches(stage, patches));
++      toolEvents.push({
++        id: id(),
++        toolName: 'ensure_stage_output',
++        status: 'warning',
++        title: '校验当前阶段交付物',
++        summary: `只校验并补齐 ${stageConfig(stage).outputFiles.join('、')}`
++      });
++    } else {
++      ensurePatch('script.md', scriptFor(req, workflow), '系统补齐缺失的脚本资产：在线模型未提交 script.md');
++      ensureValidPatch('scenes.json', scenesFor(req, workflow), (content) => hasScenes(content) >= 3, '系统补齐缺失的场景资产：保证分镜和视频任务可审查', 'medium');
++      ensureValidPatch('storyboard.json', storyboardFor(req, workflow), (content) => hasScenes(content) >= 3, '系统补齐缺失的分镜资产：保证逐镜画面可调整', 'medium');
++      ensurePatch('timeline.json', timelineFor(req, workflow), '系统补齐缺失的剪辑节奏资产', 'medium');
++      ensurePatch('video_spec.json', videoSpecFileFor(req), '系统补齐缺失的视频规格资产');
++      ensureValidPatch('asset_prompts.json', assetPromptsFor(req, workflow), hasVideoTasks, '系统补齐缺失的视频生成任务包：保证镜头任务、角色一致性和避免项可审查', 'medium');
++      ensurePatch('publish_copy.json', publishCopyFor(req, workflow), '系统补齐缺失的发布文案资产');
++      ensurePatch('compliance_report.json', complianceFor(req, workflow), '系统补齐缺失的合规检查资产', 'medium');
++      ensurePatch('feedback_report.json', feedbackFor(req, workflow), '系统补齐缺失的人工反馈结构');
++      const ensuredFiles = ['script.md', 'scenes.json', 'storyboard.json', 'timeline.json', 'video_spec.json', 'asset_prompts.json', 'publish_copy.json', 'compliance_report.json', 'feedback_report.json']
++        .filter((filePath) => patches.some((patch) => patch.filePath === filePath));
++      toolEvents.push({
++        id: id(),
++        toolName: 'ensure_production_package',
++        status: 'warning',
++        title: '补齐制作包交付物',
++        summary: `已校验 ${ensuredFiles.length} 个核心资产，确保脚本、分镜、角色一致性和视频任务可审查`
++      });
++    }
+   }
+ 
+   const checks: ComplianceCheck[] = checksRaw.map((check) => {
+@@ -519,9 +564,13 @@ function normalizeResponse(
+       })
+     : defaultAgentEvents(workflow);
+ 
+-  const fallbackAssets = missionAssetsFromWorkspace(req.workspace);
+-  const assets: MissionAsset[] = assetsRaw.length
+-    ? assetsRaw.map((asset, index) => {
++  const stageOutputFiles = req.productionStage ? new Set(stageConfig(req.productionStage).outputFiles) : null;
++  const scopedAssetsRaw = stageOutputFiles
++    ? assetsRaw.filter((asset) => stageOutputFiles.has(String((asset as Record<string, unknown>).filePath || '')))
++    : assetsRaw;
++  const fallbackAssets = req.productionStage ? [] : missionAssetsFromWorkspace(req.workspace);
++  const assets: MissionAsset[] = scopedAssetsRaw.length
++    ? scopedAssetsRaw.map((asset, index) => {
+         const a = asset as Record<string, unknown>;
+         const type = ['brief', 'reference', 'scene', 'script', 'shot', 'timeline', 'prompt', 'copy', 'compliance', 'feedback', 'calendar'].includes(String(a.type))
+           ? (String(a.type) as MissionAsset['type'])
+@@ -820,7 +869,16 @@ function scenesFor(req: AgentRunRequest, workflow: WorkflowKind) {
+         end,
+         narration,
+         visual,
+-        subtitle
++        subtitle,
++        location: details.setting,
++        timeOfDay: '白天',
++        lighting: '自然柔光，保留真实环境层次',
++        palette: '自然暖色与低饱和中性色',
++        characterIds: ['lead_01'],
++        scriptSegment: narration,
++        mainImagePrompt: `${details.setting}，${details.character}，${visual}。真实手机短视频质感，自然光，中文可审查画面说明。`,
++        prompt: `${details.setting}，${details.character}，${visual}。真实手机短视频质感，自然光，中文可审查画面说明。`,
++        referenceImageUrl: ''
+       }))
+     },
+     null,
+@@ -828,6 +886,63 @@ function scenesFor(req: AgentRunRequest, workflow: WorkflowKind) {
+   );
+ }
+ 
++function campaignGoalFor(req: AgentRunRequest, workflow: WorkflowKind) {
++  const mission = missionModel(req);
++  return JSON.stringify({
++    workflow,
++    audience: mission.audience,
++    platform: mission.platform,
++    goal: mission.goal,
++    redLines: mission.redLines
++  }, null, 2);
++}
++
++function charactersFor(req: AgentRunRequest) {
++  const details = productionDetails(req);
++  const mission = missionModel(req);
++  const script = getFile(req, 'script.md');
++  const schoolStages = [
++    ['kindergarten', '幼儿园', '5 岁', '幼儿园日常服装和红色书包'],
++    ['primary', '小学', '10 岁', '小学校服和红色铅笔盒'],
++    ['middle', '初中', '14 岁', '蓝白初中校服和红色水杯'],
++    ['high', '高中', '17 岁', '蓝白高中校服和红色笔记本'],
++    ['college', '大学', '21 岁', '干净大学生便装和红色帆布包']
++  ];
++  const hasSchoolTimeline = schoolStages.every(([, label]) => script.includes(label));
++  const variantDefinitions = hasSchoolTimeline ? schoolStages : [
++    ['child', '儿童', '8 岁', '舒适日常童装'],
++    ['teen', '少年', '16 岁', '简洁校服或休闲装'],
++    ['adult', '成年', '26 岁', '与场景相符的干净日常服装']
++  ];
++  const ageVariants = variantDefinitions.map(([id, label, ageLabel, wardrobe]) => ({
++    id,
++    label,
++    ageLabel,
++    wardrobe,
++    primaryImageUrl: '',
++    primaryImagePrompt: `${details.character}，${ageLabel}，${wardrobe}，正面半身主图，自然光，真实生活场景，保留稳定五官特征。`
++  }));
++
++  return JSON.stringify({
++    characters: [{
++      id: 'lead_01',
++      name: details.character,
++      role: '主角',
++      required: true,
++      description: `围绕「${mission.topic}」完成${details.plot}的主要人物。`,
++      faceAnchorVariantId: hasSchoolTimeline ? 'college' : 'adult',
++      referenceStrategy: 'face_id',
++      faceIdStrategy: '先确认成年主图的 Face ID，再复用到全部年龄变体和镜头。',
++      expressionIds: ['喜悦', '愤怒', '悲伤', '恐惧', '惊讶', '厌恶', '害羞', '紧张', '疑惑', '尴尬', '期待', '平静'],
++      expressionRange: '喜悦、愤怒、悲伤、恐惧、惊讶、厌恶、害羞、紧张、疑惑、尴尬、期待和平静；保持克制、可审查，不使用夸张表情。',
++      consistencyPrompt: `同一角色在不同年龄变体、场景和镜头中保持脸型、发型、肤色、体态和眼神特征一致；服装只按年龄变体切换。`,
++      imagePrompt: `${details.character}，${details.setting}，真实手机短视频人物主图，中文可审查描述，避免商业海报感。`,
++      negativePrompt: '不要换脸、不要五官漂移、不要畸形手指、不要多余肢体、不要不可读文字、不要未授权名人肖像。',
++      variants: ageVariants
++    }]
++  }, null, 2);
++}
++
+ function scriptFor(req: AgentRunRequest, workflow: WorkflowKind) {
+   const mission = missionModel(req);
+   const details = productionDetails(req);
+@@ -909,6 +1024,25 @@ ${mission.goal}。
+ }
+ 
+ function storyboardFor(req: AgentRunRequest, workflow: WorkflowKind) {
++  if (req.productionStage === 'storyboard') {
++    const confirmedScenes = parseJson<{ scenes?: Array<Record<string, unknown>> }>(getFile(req, 'scenes.json'), {}).scenes;
++    if (!confirmedScenes?.length || !confirmedScenes.every(isConfirmedStoryboardSource)) {
++      throw new Error('confirmed scenes.json is unusable for storyboard generation');
++    }
++    return JSON.stringify({
++      scenes: confirmedScenes.map((scene) => ({
++        id: scene.id,
++        title: scene.title,
++        start: scene.start,
++        end: scene.end,
++        durationSeconds: sourceSceneDuration(scene),
++        narration: isNonEmptyString(scene.narration) ? scene.narration : scene.scriptSegment,
++        visual: scene.visual,
++        subtitle: scene.subtitle,
++        scriptSegment: scene.scriptSegment
++      }))
++    }, null, 2);
++  }
+   const parsed = parseJson<{ scenes?: Array<{ id?: string; start?: number; end?: number; narration?: string; visual?: string; subtitle?: string }> }>(
+     scenesFor(req, workflow),
+     { scenes: [] }
+@@ -917,8 +1051,10 @@ function storyboardFor(req: AgentRunRequest, workflow: WorkflowKind) {
+     {
+       scenes: (parsed.scenes || []).map((scene) => ({
+         id: scene.id,
++        title: scene.id || '未命名镜头',
+         start: scene.start,
+         end: scene.end,
++        durationSeconds: Math.max(1, Number(scene.end || 0) - Number(scene.start || 0) || 6),
+         narration: scene.narration,
+         visual: scene.visual,
+         subtitle: scene.subtitle
+@@ -999,27 +1135,66 @@ function assetPromptsFor(req: AgentRunRequest, workflow: WorkflowKind) {
+   const videoSpec = videoSpecFromInstruction(req);
+   const mission = missionModel(req);
+   const details = productionDetails(req);
+-  const scenes = normalizeScenes(parseJson<{ scenes?: unknown[] }>(scenesFor(req, workflow), { scenes: [] }).scenes, []).slice(0, 5);
++  const isVideoStage = req.productionStage === 'video';
++  const confirmedVideoSources = ['script.md', 'characters.json', 'scenes.json', 'storyboard.json'];
++  const confirmedScript = getFile(req, 'script.md');
++  const confirmedCharacters = parseJson<{ characters?: Array<{ name?: string; consistencyPrompt?: string; negativePrompt?: string }> }>(
++    getFile(req, 'characters.json'),
++    {}
++  ).characters || [];
++  const confirmedScenes = normalizeScenes(
++    parseJson<{ scenes?: unknown[] }>(getFile(req, 'scenes.json'), { scenes: [] }).scenes,
++    []
++  );
++  const confirmedStoryboardScenes = normalizeScenes(
++    parseJson<{ scenes?: unknown[] }>(getFile(req, 'storyboard.json'), { scenes: [] }).scenes,
++    []
++  );
++  const scenes = isVideoStage
++    ? (confirmedStoryboardScenes.length ? confirmedStoryboardScenes : confirmedScenes)
++    : normalizeScenes(parseJson<{ scenes?: unknown[] }>(scenesFor(req, workflow), { scenes: [] }).scenes, []).slice(0, 5);
++  const primaryCharacter = confirmedCharacters[0];
++  const primarySubject = isVideoStage
++    ? primaryCharacter?.name || '已确认主角色'
++    : details.character;
++  const scriptExcerpt = confirmedScript.trim().slice(0, 300);
+   const renderTasks = ['开场镜头', '痛点补充镜头', '证明点画面', '信任解释镜头', '行动引导镜头'];
+   return JSON.stringify(
+     {
+       workflow,
+-      visualStyle: `${mission.topic} 的真实场景 + 清楚信息卡 + ${videoSpec.aspectRatio} 短视频节奏`,
++      visualStyle: isVideoStage
++        ? `已确认制作包的真实场景 + 清楚信息卡 + ${videoSpec.aspectRatio} 短视频节奏`
++        : `${mission.topic} 的真实场景 + 清楚信息卡 + ${videoSpec.aspectRatio} 短视频节奏`,
+       handoffTo: '视频生成准备 Agent',
+       handoffRule: '只使用已确认的脚本、分镜、人物、动作、服装、眼神、对白和运镜说明。渲染任务真正成功前，不要声称已有视频文件。',
++      confirmedSourceVersions: isVideoStage
++        ? Object.fromEntries(confirmedVideoSources.map((path) => [path, req.sourceVersions?.[path] ?? null]))
++        : {},
++      ...(isVideoStage ? {
++        confirmedSourceInputs: {
++          scriptExcerpt,
++          characterCount: confirmedCharacters.length,
++          sceneCount: confirmedScenes.length,
++          storyboardSceneCount: confirmedStoryboardScenes.length
++        }
++      } : {}),
+       renderSpec: videoSpec,
+       characterConsistency: {
+-        primarySubject: details.character,
+-        consistencyPrompt: `同一个真实人物，脸型、发型、服装和眼神状态保持一致。人物设定：${details.character}。剧情设定：${details.plot}。画面围绕「${details.setting}」，保持真实手机短视频质感。`,
+-        negativePrompt: '不要畸形手指、不要脸部不一致、不要多余手指、不要不可读文字、不要夸张广告海报感、不要身材羞辱、不要疗效承诺、不要未授权名人肖像。'
++        primarySubject,
++        consistencyPrompt: primaryCharacter?.consistencyPrompt || (isVideoStage
++          ? '以已确认 characters.json 的 Face ID、年龄变体、服装和表情范围为唯一角色一致性依据。'
++          : `同一个真实人物，脸型、发型、服装和眼神状态保持一致。人物设定：${details.character}。剧情设定：${details.plot}。画面围绕「${details.setting}」，保持真实手机短视频质感。`),
++        negativePrompt: primaryCharacter?.negativePrompt || '不要畸形手指、不要脸部不一致、不要多余手指、不要不可读文字、不要夸张广告海报感、不要身材羞辱、不要疗效承诺、不要未授权名人肖像。'
+       },
+       prompts: scenes.map((scene, index) => ({
+         id: `prompt_${String(index + 1).padStart(2, '0')}`,
+         sceneId: scene.id,
+-        type: index === 1 || index === 2 ? 'image' : 'video',
++        type: isVideoStage ? 'video' : index === 1 || index === 2 ? 'image' : 'video',
+         renderTask: renderTasks[index] || `第 ${index + 1} 个镜头任务`,
+         durationSeconds: Math.min(Math.max(4, scene.durationSeconds), videoSpec.estimatedClipDurationSeconds),
+-        prompt: `${videoSpec.aspectRatio} ${videoSpec.resolutionTier}。${scene.title}：${scene.visual}。字幕意图：${scene.subtitle}。风格为真实手机短视频，自然光，围绕「${mission.topic}」，让「${mission.audience}」能快速理解场景和判断点。画面里出现的字幕、菜单、招牌、包装文字和旁白全部使用中文，禁止英文字幕、英文菜单、英文招牌、英文包装和英文旁白。`
++        prompt: isVideoStage
++          ? `${videoSpec.aspectRatio} ${videoSpec.resolutionTier}。${scene.title}：${scene.visual}。字幕意图：${scene.subtitle}。严格沿用已确认脚本和分镜，不新增上游未确认情节。${scriptExcerpt ? `已确认脚本摘要：${scriptExcerpt}。` : ''}画面里出现的字幕、菜单、招牌、包装文字和旁白全部使用中文，禁止英文字幕、英文菜单、英文招牌、英文包装和英文旁白。`
++          : `${videoSpec.aspectRatio} ${videoSpec.resolutionTier}。${scene.title}：${scene.visual}。字幕意图：${scene.subtitle}。风格为真实手机短视频，自然光，围绕「${mission.topic}」，让「${mission.audience}」能快速理解场景和判断点。画面里出现的字幕、菜单、招牌、包装文字和旁白全部使用中文，禁止英文字幕、英文菜单、英文招牌、英文包装和英文旁白。`
+       })),
+       renderQueue: scenes.map((scene, index) => ({
+         id: `render_${String(index + 1).padStart(2, '0')}`,
+@@ -1158,6 +1333,141 @@ function makePatch(req: AgentRunRequest, filePath: string, after: string, summar
+   };
+ }
+ 
++function dedupePatchesByFilePath(patches: PatchOperation[]): PatchOperation[] {
++  const uniqueReversed: PatchOperation[] = [];
++  const seen = new Set<string>();
++  for (let index = patches.length - 1; index >= 0; index -= 1) {
++    const patch = patches[index];
++    if (seen.has(patch.filePath)) continue;
++    seen.add(patch.filePath);
++    uniqueReversed.push(patch);
++  }
++  return uniqueReversed.reverse();
++}
++
++function isNonEmptyString(value: unknown): value is string {
++  return typeof value === 'string' && value.trim().length > 0;
++}
++
++function hasCharacters(content: string) {
++  const parsed = parseJson<{ characters?: Array<Record<string, unknown>> }>(content, {});
++  const characters = parsed.characters || [];
++  return characters.length > 0 && characters.some((character) => character.required === true) && characters.every((character) => {
++    const variants = Array.isArray(character.variants) ? character.variants as Array<Record<string, unknown>> : [];
++    return typeof character.required === 'boolean' &&
++      isNonEmptyString(character.id) &&
++      isNonEmptyString(character.name) &&
++      isNonEmptyString(character.role) &&
++      isNonEmptyString(character.description) &&
++      isNonEmptyString(character.faceAnchorVariantId) &&
++      isNonEmptyString(character.referenceStrategy) &&
++      isNonEmptyString(character.faceIdStrategy) &&
++      isNonEmptyString(character.consistencyPrompt) &&
++      isNonEmptyString(character.negativePrompt) &&
++      Array.isArray(character.expressionIds) && character.expressionIds.length > 0 &&
++      isNonEmptyString(character.expressionRange) &&
++      isNonEmptyString(character.imagePrompt) &&
++      variants.length > 0 && variants.every((variant) =>
++        isNonEmptyString(variant.id) &&
++        isNonEmptyString(variant.label) &&
++        isNonEmptyString(variant.ageLabel) &&
++        isNonEmptyString(variant.wardrobe) &&
++        isNonEmptyString(variant.primaryImagePrompt)
++      );
++  });
++}
++
++function hasSceneDraft(content: string) {
++  const parsed = parseJson<{ scenes?: Array<Record<string, unknown>> }>(content, {});
++  return Boolean(parsed.scenes?.length) && Boolean(parsed.scenes?.every((scene) =>
++    isNonEmptyString(scene.id) &&
++    isNonEmptyString(scene.title) &&
++    isNonEmptyString(scene.visual) &&
++    isNonEmptyString(scene.location) &&
++    isNonEmptyString(scene.timeOfDay) &&
++    isNonEmptyString(scene.lighting) &&
++    isNonEmptyString(scene.palette) &&
++    Array.isArray(scene.characterIds) && scene.characterIds.length > 0 && scene.characterIds.every(isNonEmptyString) &&
++    isNonEmptyString(scene.scriptSegment) &&
++    isNonEmptyString(scene.mainImagePrompt) &&
++    isNonEmptyString(scene.prompt)
++  ));
++}
++
++function isConfirmedStoryboardSource(scene: Record<string, unknown>) {
++  return isNonEmptyString(scene.id) &&
++    isNonEmptyString(scene.title) &&
++    isNonEmptyString(scene.visual) &&
++    isNonEmptyString(scene.subtitle) &&
++    isNonEmptyString(scene.scriptSegment) &&
++    sourceSceneDuration(scene) > 0;
++}
++
++function sourceSceneDuration(scene: Record<string, unknown>) {
++  if (typeof scene.durationSeconds === 'number' && scene.durationSeconds > 0) return scene.durationSeconds;
++  const start = typeof scene.start === 'number' ? scene.start : 0;
++  const end = typeof scene.end === 'number' ? scene.end : 0;
++  return end > start ? end - start : 0;
++}
++
++function hasStoryboardDraft(content: string) {
++  const parsed = parseJson<{ scenes?: Array<Record<string, unknown>> }>(content, {});
++  return Boolean(parsed.scenes?.length) && Boolean(parsed.scenes?.every((scene) =>
++    typeof scene.durationSeconds === 'number' && scene.durationSeconds > 0
++  ));
++}
++
++function confirmedVideoSceneCount(req: AgentRunRequest) {
++  const storyboard = parseJson<{ scenes?: unknown[] }>(getFile(req, 'storyboard.json'), { scenes: [] }).scenes;
++  const scenes = parseJson<{ scenes?: unknown[] }>(getFile(req, 'scenes.json'), { scenes: [] }).scenes;
++  return Array.isArray(storyboard) && storyboard.length ? storyboard.length : Array.isArray(scenes) ? scenes.length : 0;
++}
++
++function hasVideoTaskPackage(req: AgentRunRequest, content: string) {
++  const parsed = parseJson<{
++    prompts?: Array<Record<string, unknown>>;
++    renderQueue?: Array<Record<string, unknown>>;
++    characterConsistency?: { consistencyPrompt?: string; negativePrompt?: string };
++  }>(content, {});
++  const prompts = parsed.prompts || [];
++  const renderQueue = parsed.renderQueue || [];
++  if (req.productionStage === 'video') {
++    const expectedCount = confirmedVideoSceneCount(req);
++    return prompts.length === expectedCount &&
++      renderQueue.length === expectedCount &&
++      prompts.every((prompt) => prompt.type === 'video') &&
++      Boolean(parsed.characterConsistency?.consistencyPrompt || parsed.characterConsistency?.negativePrompt);
++  }
++  return Math.max(prompts.length, renderQueue.length) >= 3 &&
++    Boolean(parsed.characterConsistency?.consistencyPrompt || parsed.characterConsistency?.negativePrompt);
++}
++
++function stageFallbackPatches(req: AgentRunRequest, workflow: WorkflowKind): PatchOperation[] {
++  if (!req.productionStage) return [];
++  const patchFor = (filePath: string, after: string, summary: string, riskLevel: PatchOperation['riskLevel'] = 'low') =>
++    makePatch(req, filePath, after, summary, riskLevel);
++
++  if (req.productionStage === 'script') {
++    return [
++      patchFor('brief.json', updatedBrief(req, workflow), '生成脚本阶段 Brief'),
++      patchFor('campaign_goal.json', campaignGoalFor(req, workflow), '生成脚本阶段目标'),
++      patchFor('script.md', scriptFor(req, workflow), '生成脚本阶段脚本')
++    ];
++  }
++  if (req.productionStage === 'character') return [patchFor('characters.json', charactersFor(req), '生成角色阶段角色资产', 'medium')];
++  if (req.productionStage === 'scene') return [patchFor('scenes.json', scenesFor(req, workflow), '生成场景阶段场景资产', 'medium')];
++  if (req.productionStage === 'storyboard') {
++    return [
++      patchFor('storyboard.json', storyboardFor(req, workflow), '生成分镜阶段分镜资产', 'medium'),
++      patchFor('timeline.json', timelineFor(req, workflow), '生成分镜阶段剪辑节奏', 'medium')
++    ];
++  }
++  return [
++    patchFor('asset_prompts.json', assetPromptsFor(req, workflow), '生成视频阶段任务包', 'medium'),
++    patchFor('video_spec.json', videoSpecFileFor(req), '生成视频阶段规格')
++  ];
++}
++
+ function mockAgentEvents(workflow: WorkflowKind): AgentEvent[] {
+   const base = defaultAgentEvents(workflow);
+   const mapped: AgentEvent[] = base.map((event, index): AgentEvent => ({
+@@ -1220,7 +1530,7 @@ function mockAssets(req: AgentRunRequest, workflow: WorkflowKind): MissionAsset[
+ 
+ function mockPatch(req: AgentRunRequest): AgentRunResponse {
+   const workflow = inferWorkflow(req);
+-  const patches = [
++  const genericPatches = [
+     makePatch(req, 'brief.json', updatedBrief(req, workflow), '更新本次 Mission Brief 和工作流'),
+     makePatch(req, 'viral_refs.json', viralRefsFor(req, workflow), '更新爆款参考拆解'),
+     makePatch(req, 'scenes.json', scenesFor(req, workflow), '更新场景级任务拆解', 'medium'),
+@@ -1234,6 +1544,9 @@ function mockPatch(req: AgentRunRequest): AgentRunResponse {
+     makePatch(req, 'feedback_report.json', feedbackFor(req, workflow), '记录人工反馈结构和待验证假设'),
+     makePatch(req, '.aigc/MEMORY.md', memoryFor(req, workflow), '更新 AIGC 项目记忆')
+   ].filter((patch) => patch.after !== patch.before);
++  const patches = req.productionStage
++    ? stageFallbackPatches(req, workflow).filter((patch) => patch.after !== patch.before)
++    : genericPatches;
+ 
+   const previewScenes = normalizeScenes(parseJson<{ scenes?: unknown[] }>(scenesFor(req, workflow), { scenes: [] }).scenes, []);
+ 
+@@ -1264,7 +1577,16 @@ function mockPatch(req: AgentRunRequest): AgentRunResponse {
+       { id: id(), toolName: 'propose_patch', status: 'approval_required', title: '等待批准', summary: `已准备 ${patches.length} 个完整文件 patch` }
+     ],
+     agentEvents: mockAgentEvents(workflow),
+-    assets: mockAssets(req, workflow),
++    assets: req.productionStage
++      ? patches.map((patch) => ({
++          id: id(),
++          type: patch.filePath.includes('scene') ? 'scene' : patch.filePath.includes('storyboard') ? 'shot' : patch.filePath.includes('timeline') ? 'timeline' : patch.filePath.includes('prompt') || patch.filePath.includes('video') || patch.filePath.includes('character') ? 'prompt' : 'script',
++          title: patch.filePath,
++          status: patch.riskLevel === 'high' ? 'warning' : 'ready',
++          filePath: patch.filePath,
++          summary: patch.summary
++        }))
++      : mockAssets(req, workflow),
+     patchOperations: patches,
+     complianceChecks: [
+       {
+@@ -1297,11 +1619,12 @@ function mockPatch(req: AgentRunRequest): AgentRunResponse {
+ }
+ 
+ export async function runVideoAgent(req: AgentRunRequest): Promise<AgentRunResponse> {
++  assertStageSourceVersions(req);
+   const forceMock = process.env.VIDEOAGENT_FORCE_MOCK === 'true' || process.env.DEMO_MODE === '1';
+   const provider = (process.env.DEFAULT_PROVIDER || '').toLowerCase();
+   const customConfigured = Boolean(process.env.CUSTOM_API_KEY && (process.env.CUSTOM_BASE_URL || process.env.OPENAI_BASE_URL));
+   if (forceMock) return mockPatch(req);
+-  if (process.env.AGENT_LOOP === '1') return agentLoop(req);
++  if (process.env.AGENT_LOOP === '1' && !req.productionStage) return agentLoop(req);
+   if (provider === 'custom' && customConfigured) return callCustomOpenAICompatible(req);
+   if (provider === 'anthropic' && process.env.ANTHROPIC_API_KEY) return callAnthropic(req);
+   if (provider === 'openai' && process.env.OPENAI_API_KEY) return callOpenAI(req);
+diff --git a/.superpowers/sdd/task-4-before/lib/agentProvider.language.test.cjs b/lib/agentProvider.language.test.cjs
+index 04a97b2..622d49d 100644
+--- a/.superpowers/sdd/task-4-before/lib/agentProvider.language.test.cjs
++++ b/lib/agentProvider.language.test.cjs
+@@ -12,6 +12,15 @@ test('agent provider requires Chinese for human-facing deliverables', () => {
+   assert.match(source, /视频模型提示词/);
+ });
+ 
++test('agent provider declares stage-bound outputs and confirmed upstream inputs', () => {
++  assert.match(source, /stageGenerationInstruction/);
++  assert.match(source, /productionStage/);
++  assert.match(source, /generationJobId/);
++  assert.match(source, /sourceVersions/);
++  assert.match(source, /characters\.json/);
++  assert.match(source, /production_flow\.json/);
++});
++
+ test('fallback asset prompts are readable Chinese, not English prompt templates', () => {
+   assert.match(source, /同一个真实人物/);
+   assert.match(source, /不要畸形手指/);
+

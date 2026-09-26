@@ -1,0 +1,58 @@
+{
+  "date": "2026-07-07T13:53:00.432Z",
+  "url": "http://127.0.0.1:3000",
+  "scenario": "为一家社区咖啡店做一条 30 秒小红书短视频。\n场景：周二早高峰，地铁口旁边的小店，外面下小雨。\n主角：同一位 25 岁店员，黑色短发，白衬衫，绿色围裙，眼神有点疲惫但很真诚；每个镜头都要保持同一个人、同一套衣服。\n剧情：一个赶上班的女生先在门口犹豫，看见菜单明码标价，又看到店员现场手冲，最后买一杯带走。\n要求：文案像真实店员讲述，不要硬广，不要空泛口号；分镜要能调整眼神、衣服、人物一致性、剧情连通性；输出脚本、分镜、角色一致性和视频生成任务。",
+  "aiFlavorScore": 0,
+  "assertions": {
+    "scriptReadable": true,
+    "concreteScenario": true,
+    "stageTabs": [
+      "总览",
+      "剧本",
+      "角色",
+      "场景",
+      "分镜",
+      "视频"
+    ],
+    "characterConsistency": true,
+    "storyboardAdjustable": true,
+    "localShotRewrite": true,
+    "videoHandoffTruthful": true,
+    "completePackageReview": true,
+    "packageRows": 12,
+    "packageFiles": [
+      "brief.json",
+      "viral_refs.json",
+      "scenes.json",
+      "script.md",
+      "storyboard.json",
+      "timeline.json",
+      "video_spec.json",
+      "asset_prompts.json",
+      "publish_copy.json",
+      "compliance_report.json",
+      "feedback_report.json",
+      ".aigc/MEMORY.md"
+    ]
+  },
+  "console": [
+    {
+      "type": "info",
+      "text": "%cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold"
+    },
+    {
+      "type": "verbose",
+      "text": "[DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o"
+    }
+  ],
+  "exceptions": [],
+  "failedRequests": [],
+  "screenshots": [
+    "videoagent-flow-01-home.png",
+    "videoagent-flow-02-filled-input.png",
+    "videoagent-flow-03-generated-package.png",
+    "videoagent-flow-04-character.png",
+    "videoagent-flow-05-storyboard.png",
+    "videoagent-flow-06-video-handoff.png"
+  ]
+}

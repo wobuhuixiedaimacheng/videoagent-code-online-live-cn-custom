@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cross-Model Matrix · 5 场景 × 11 模型对照</title>
+<meta name="description" content="同一场景在 11 个 AI 视频生成模型上的最佳 prompt 对照矩阵 — 横向看清各模型 prompt 风格差异。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg-base: #06050b;
+    --bg-mesh-1: hsl(258, 75%, 22%);
+    --bg-mesh-2: hsl(330, 75%, 20%);
+    --bg-mesh-3: hsl(195, 65%, 18%);
+    --bg-mesh-4: hsl(48, 70%, 18%);
+    --glass-1: rgba(255, 255, 255, 0.03);
+    --glass-2: rgba(255, 255, 255, 0.05);
+    --glass-3: rgba(255, 255, 255, 0.08);
+    --glass-border: rgba(255, 255, 255, 0.08);
+    --glass-border-strong: rgba(255, 255, 255, 0.14);
+    --text-primary: rgba(255, 255, 255, 0.98);
+    --text-secondary: rgba(255, 255, 255, 0.66);
+    --text-muted: rgba(255, 255, 255, 0.42);
+    --accent: #a78bfa;
+    --accent-hover: #c4b5fd;
+    --accent-soft: rgba(167, 139, 250, 0.14);
+    --accent-glow: rgba(167, 139, 250, 0.5);
+    --success: #34d399;
+    --m-sd: #fb923c; --m-hh: #38bdf8; --m-kl: #f472b6;
+    --m-so: #34d399; --m-ve: #facc15; --m-rw: #c084fc;
+    --m-pk: #fda4af; --m-hl: #5eead4; --m-hy: #93c5fd;
+    --m-wn: #fcd34d; --m-jm: #f9a8d4;
+    --r-sm: 8px; --r-md: 14px; --r-lg: 22px; --r-full: 999px;
+    --shadow-glass: inset 0 1px 0 rgba(255,255,255,0.14), inset 0 0 0 1px rgba(255,255,255,0.04), 0 8px 24px rgba(0,0,0,0.3), 0 24px 64px -8px rgba(0,0,0,0.4);
+    --shadow-glass-hover: inset 0 1px 0 rgba(255,255,255,0.22), inset 0 0 0 1px rgba(255,255,255,0.08), 0 16px 40px rgba(0,0,0,0.4), 0 40px 100px -16px rgba(0,0,0,0.5);
+  }
+
+  [data-theme="light"] {
+    --bg-base: #f5f3ff;
+    --bg-mesh-1: hsl(258, 90%, 88%);
+    --bg-mesh-2: hsl(330, 85%, 92%);
+    --bg-mesh-3: hsl(195, 75%, 90%);
+    --bg-mesh-4: hsl(48, 90%, 92%);
+    --glass-1: rgba(255, 255, 255, 0.45);
+    --glass-2: rgba(255, 255, 255, 0.65);
+    --glass-3: rgba(255, 255, 255, 0.8);
+    --glass-border: rgba(0, 0, 0, 0.06);
+    --glass-border-strong: rgba(0, 0, 0, 0.12);
+    --text-primary: rgba(15, 12, 25, 0.92);
+    --text-secondary: rgba(15, 12, 25, 0.6);
+    --text-muted: rgba(15, 12, 25, 0.4);
+    --accent: #7c3aed;
+    --accent-hover: #6d28d9;
+    --accent-soft: rgba(124, 58, 237, 0.10);
+    --accent-glow: rgba(124, 58, 237, 0.35);
+    --shadow-glass: inset 0 1px 0 rgba(255,255,255,0.95), inset 0 0 0 1px rgba(255,255,255,0.4), 0 8px 24px rgba(0,0,0,0.08), 0 24px 64px -8px rgba(0,0,0,0.12);
+    --shadow-glass-hover: inset 0 1px 0 rgba(255,255,255,1), inset 0 0 0 1px rgba(255,255,255,0.6), 0 16px 40px rgba(0,0,0,0.15);
+  }
+
+  html, body {
+    font-family: 'Inter', system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    color: var(--text-primary);
+    background: var(--bg-base);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow-x: hidden;
+  }
+  body { min-height: 100vh; position: relative; }
+  body::before {
+    content: ''; position: fixed; inset: -10vh -10vw;
+    background:
+      radial-gradient(45% 55% at 12% 8%, var(--bg-mesh-1) 0%, transparent 60%),
+      radial-gradient(40% 50% at 88% 4%, var(--bg-mesh-2) 0%, transparent 55%),
+      radial-gradient(55% 45% at 50% 100%, var(--bg-mesh-3) 0%, transparent 60%),
+      radial-gradient(40% 40% at 80% 70%, var(--bg-mesh-4) 0%, transparent 50%);
+    pointer-events: none; z-index: 0;
+  }
+
+  /* Nav */
+  nav.top {
+    position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
+    z-index: 50; display: flex; align-items: center; gap: 4px;
+    padding: 6px 8px 6px 16px;
+    background: rgba(20, 18, 28, 0.78);
+    backdrop-filter: saturate(180%) blur(28px);
+    -webkit-backdrop-filter: saturate(180%) blur(28px);
+    border: 1px solid var(--glass-border); border-radius: var(--r-full);
+    box-shadow: var(--shadow-glass);
+  }
+  [data-theme="light"] nav.top { background: rgba(255, 255, 255, 0.85); }
+  .brand {
+    display: flex; align-items: center; gap: 8px;
+    font-weight: 700; font-size: 13px; color: var(--text-primary);
+    padding-right: 12px; border-right: 1px solid var(--glass-border); margin-right: 4px;
+    transition: opacity .15s;
+  }
+  .brand:hover { opacity: 0.78; }
+  .brand-logo-box {
+    width: 24px; height: 24px;
+    display: grid; place-items: center;
+    background: linear-gradient(135deg, #a78bfa, #f472b6);
+    border-radius: 7px;
+    box-shadow: 0 3px 10px rgba(167, 139, 250, 0.4);
+  }
+  .brand-logo-box svg { width: 15px; height: 15px; }
+  .brand-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: linear-gradient(135deg, #a78bfa, #f472b6);
+    box-shadow: 0 0 12px var(--accent-glow);
+  }
+  .nav-link.home-cta {
+    display: inline-flex; align-items: center; gap: 5px;
+    background: linear-gradient(135deg, #a78bfa, #f472b6);
+    color: #fff; font-weight: 600;
+    box-shadow: 0 4px 14px rgba(167, 139, 250, 0.35);
+  }
+  .nav-link.home-cta:hover { background: linear-gradient(135deg, #a78bfa, #f472b6); transform: translateY(-1px); }
+  .nav-link.home-cta svg { width: 13px; height: 13px; }
+  .nav-link {
+    padding: 7px 13px; border-radius: var(--r-full);
+    color: var(--text-secondary); text-decoration: none;
+    font-size: 12.5px; font-weight: 500;
+    transition: all 0.18s; white-space: nowrap;
+  }
+  .nav-link:hover { color: var(--text-primary); background: var(--glass-3); }
+  .nav-link.cta {
+    background: var(--accent); color: #fff; margin-left: 4px;
+    box-shadow: 0 0 16px var(--accent-glow);
+  }
+  .nav-icon-btn {
+    width: 30px; height: 30px; border-radius: var(--r-full);
+    background: transparent; border: none; cursor: pointer;
+    color: var(--text-secondary); display: flex;
+    align-items: center; justify-content: center; transition: all 0.18s;
+  }
+  .nav-icon-btn:hover { background: var(--glass-3); color: var(--text-primary); }
+  .nav-icon-btn svg { width: 14px; height: 14px; }
+
+  /* Layout */
+  .container {
+    max-width: 1400px; margin: 0 auto; padding: 120px 24px 60px;
+    position: relative; z-index: 1;
+  }
+
+  /* Hero */
+  .hero { text-align: center; margin-bottom: 40px; }
+  .hero-eyebrow {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 6px 14px 6px 8px;
+    background: var(--glass-2);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--r-full);
+    font-size: 11.5px; color: var(--text-secondary);
+    margin-bottom: 18px;
+    box-shadow: var(--shadow-glass);
+  }
+  .hero-eyebrow .pill {
+    background: linear-gradient(135deg, #a78bfa, #f472b6);
+    color: #fff; padding: 2px 8px; border-radius: var(--r-full);
+    font-weight: 600; font-size: 10.5px;
+  }
+  .hero h1 {
+    font-size: clamp(28px, 4vw, 48px); font-weight: 800;
+    letter-spacing: -0.025em; line-height: 1.15; margin-bottom: 14px;
+  }
+  .hero h1 .grad {
+    background: linear-gradient(135deg, #a78bfa 0%, #f472b6 50%, #facc15 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .hero-sub {
+    font-size: 14.5px; color: var(--text-secondary);
+    max-width: 720px; margin: 0 auto; line-height: 1.6;
+  }
+
+  /* Scenario tabs */
+  .scenarios-tabs {
+    display: flex; flex-wrap: wrap; justify-content: center; gap: 8px;
+    margin-bottom: 24px;
+  }
+  .scenario-tab {
+    padding: 10px 18px;
+    background: var(--glass-1);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--r-full);
+    color: var(--text-secondary);
+    font-family: inherit; font-size: 12.5px; font-weight: 500;
+    cursor: pointer; transition: all 0.18s; white-space: nowrap;
+    box-shadow: var(--shadow-glass);
+  }
+  .scenario-tab:hover { color: var(--text-primary); background: var(--glass-2); }
+  .scenario-tab.active {
+    background: var(--accent); color: #fff;
+    border-color: var(--accent); box-shadow: 0 0 16px var(--accent-glow);
+  }
+  .scenario-tab .num {
+    display: inline-block; width: 18px; height: 18px;
+    background: var(--glass-3); color: var(--text-muted);
+    border-radius: 50%; font-size: 10px; font-weight: 700;
+    line-height: 18px; text-align: center; margin-right: 6px;
+  }
+  .scenario-tab.active .num { background: rgba(255,255,255,0.25); color: #fff; }
+
+  /* Core anchor card */
+  .anchor-card {
+    background: var(--glass-1);
+    backdrop-filter: saturate(180%) blur(28px);
+    -webkit-backdrop-filter: saturate(180%) blur(28px);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--r-lg);
+    padding: 22px 26px;
+    box-shadow: var(--shadow-glass);
+    margin-bottom: 32px;
+  }
+  .anchor-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+  .anchor-title { font-size: 18px; font-weight: 700; letter-spacing: -0.01em; }
+  .anchor-category {
+    font-size: 11px; color: var(--accent); background: var(--accent-soft);
+    padding: 3px 10px; border-radius: var(--r-full); font-weight: 600;
+  }
+  .anchor-use-case {
+    font-size: 12px; color: var(--text-muted); margin-left: auto;
+  }
+  .anchor-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 12px;
+  }
+  .anchor-item {
+    padding: 10px 14px;
+    background: var(--glass-2);
+    border-radius: var(--r-sm);
+    font-size: 12.5px;
+  }
+  .anchor-item-label {
+    font-size: 10.5px; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 0.06em;
+    font-weight: 600; margin-bottom: 4px;
+  }
+  .anchor-item-value { color: var(--text-primary); line-height: 1.5; }
+
+  /* Model grid */
+  .models-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+    gap: 16px;
+  }
+  .model-card {
+    background: var(--glass-1);
+    backdrop-filter: saturate(180%) blur(28px);
+    -webkit-backdrop-filter: saturate(180%) blur(28px);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--r-lg);
+    padding: 18px 20px;
+    box-shadow: var(--shadow-glass);
+    display: flex; flex-direction: column;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    animation: cardIn 0.4s cubic-bezier(0.4, 0, 0.2, 1) both;
+  }
+  @keyframes cardIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  .model-card:hover {
+    transform: translateY(-2px);
+    border-color: var(--glass-border-strong);
+    box-shadow: var(--shadow-glass-hover);
+  }
+  .model-head {
+    display: flex; align-items: center; gap: 12px; margin-bottom: 10px;
+  }
+  .model-orb {
+    width: 28px; height: 28px; border-radius: 50%; flex-shrink: 0; position: relative;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.5), inset 0 -1px 0 rgba(0,0,0,0.2), 0 4px 12px currentColor;
+  }
+  .model-orb::after {
+    content: ''; position: absolute; top: 4px; left: 7px;
+    width: 8px; height: 5px; background: rgba(255,255,255,0.5); border-radius: 50%; filter: blur(0.5px);
+  }
+  .model-info { flex: 1; min-width: 0; }
+  .model-name { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
+  .model-method {
+    font-size: 11px; color: var(--accent);
+    background: var(--accent-soft);
+    display: inline-block; padding: 2px 8px; border-radius: var(--r-full);
+    margin-top: 4px; font-weight: 500;
+  }
+  .copy-btn {
+    background: var(--accent); color: #fff; border: none;
+    padding: 6px 14px; border-radius: var(--r-md);
+    font-size: 12px; font-weight: 600; cursor: pointer;
+    font-family: inherit;
+    transition: all 0.18s;
+    display: inline-flex; align-items: center; gap: 5px;
+    box-shadow: 0 2px 8px var(--accent-glow);
+  }
+  .copy-btn:hover { background: var(--accent-hover); transform: translateY(-1px); }
+  .copy-btn.copied { background: var(--success); }
+  .copy-btn svg { width: 11px; height: 11px; }
+  .prompt-body {
+    font-family: 'JetBrains Mono', 'SF Mono', Monaco, monospace;
+    font-size: 12px; line-height: 1.65;
+    color: var(--text-secondary);
+    white-space: pre-wrap; word-break: break-word;
+    padding: 12px 14px;
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--r-sm);
+    max-height: 320px; overflow-y: auto;
+  }
+  /* Video slot */
+  .video-slot {
+    margin-top: 10px;
+    display: flex; align-items: center; gap: 8px;
+    flex-wrap: wrap;
+  }
+  .video-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 5px 12px;
+    background: linear-gradient(135deg, #34d399 0%, #10b981 100%);
+    color: #fff; text-decoration: none;
+    border-radius: var(--r-full);
+    font-size: 11.5px; font-weight: 600;
+    box-shadow: 0 2px 8px rgba(52,211,153,0.35);
+    transition: all 0.18s;
+  }
+  .video-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(52,211,153,0.5); }
+  .video-btn svg { width: 11px; height: 11px; }
+  .video-rating {
+    display: inline-flex; align-items: center; gap: 3px;
+    padding: 3px 9px;
+    background: var(--glass-2);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--r-full);
+    font-size: 11px; color: var(--text-secondary);
+  }
+  .video-empty {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 5px 12px;
+    background: transparent;
+    color: var(--text-muted); text-decoration: none;
+    border: 1px dashed var(--glass-border-strong);
+    border-radius: var(--r-full);
+    font-size: 11.5px;
+    transition: all 0.18s;
+  }
+  .video-empty:hover {
+    color: var(--accent); border-color: var(--accent-soft); background: var(--accent-soft);
+  }
+  .video-empty svg { width: 11px; height: 11px; }
+  .video-tested-meta {
+    font-size: 10.5px; color: var(--text-muted);
+    margin-left: auto;
+  }
+  [data-theme="light"] .prompt-body { background: rgba(0,0,0,0.04); }
+  .prompt-body::-webkit-scrollbar { width: 6px; }
+  .prompt-body::-webkit-scrollbar-thumb { background: var(--glass-border-strong); border-radius: 3px; }
+
+  /* Empty */
+  .empty { text-align: center; padding: 80px 20px; color: var(--text-muted); }
+  .empty h3 { color: var(--text-primary); margin-bottom: 8px; font-size: 16px; }
+  .empty pre {
+    display: inline-block; background: var(--glass-2);
+    padding: 14px 18px; border-radius: var(--r-md);
+    font-family: 'JetBrains Mono', monospace; font-size: 12px;
+    text-align: left; margin-top: 14px;
+  }
+
+  /* Toast */
+  .toast {
+    position: fixed; bottom: 24px; left: 50%;
+    transform: translateX(-50%) translateY(20px) scale(0.95);
+    background: var(--glass-3);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--glass-border-strong);
+    color: var(--text-primary);
+    padding: 10px 18px; border-radius: var(--r-full);
+    font-size: 13px; font-weight: 500;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.3);
+    opacity: 0; transition: all 0.3s; pointer-events: none; z-index: 100;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+  .toast-icon { width: 14px; height: 14px; color: var(--success); }
+
+  ::-webkit-scrollbar { width: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--glass-border-strong); border-radius: var(--r-full); border: 2px solid transparent; background-clip: padding-box; }
+
+  @media (max-width: 880px) {
+    nav.top { padding: 4px 6px 4px 12px; flex-wrap: wrap; max-width: 95vw; }
+    .nav-link { padding: 5px 9px; font-size: 11.5px; }
+    .container { padding: 120px 16px 50px; }
+    .models-grid { grid-template-columns: 1fr; }
+    .anchor-use-case { width: 100%; margin-left: 0; }
+  }
+</style>
+
+<!-- 全站统一主题 -->
+<link rel="stylesheet" href="/assets/site-theme.css">
+</head>
+<body>
+
+<nav class="top">
+  <a class="brand" href="../../" title="返回主页" style="text-decoration: none; color: inherit;">
+    <span class="brand-logo-box">
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M6 9L12 3L18 9L12 21L6 9Z" fill="white" fill-opacity="0.95" stroke="white" stroke-width="1.2" stroke-linejoin="round"/>
+        <path d="M6 9H18M9 9L12 21M15 9L12 21M9 9L12 3M15 9L12 3" stroke="rgba(167,139,250,0.6)" stroke-width="0.8"/>
+      </svg>
+    </span>
+    <span>lanshu-video-kit</span>
+  </a>
+  <a class="nav-link" href="../../methodology/">📖 Methodology</a>
+  <a class="nav-link" href="../../prompts/">📚 Prompts</a>
+  <a class="nav-link" href="../../skills/">🛠️ Skills</a>
+  <a class="nav-link" href="../prompt-browser/">🌐 Browser</a>
+  <a class="nav-link active" href="./">🔀 Matrix</a>
+  <a class="nav-link home-cta" href="../../" title="返回主页">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12l9-9 9 9M5 10v10h14V10"/></svg>
+    主页
+  </a>
+  <button class="nav-icon-btn" id="themeToggle" title="切换主题">
+    <svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+    </svg>
+  </button>
+</nav>
+
+<main class="container">
+  <section class="hero">
+    <div class="hero-eyebrow">
+      <span class="pill">v1.0</span>
+      <span>5 核心场景 × 11 主流模型 = 55 对照 prompt</span>
+    </div>
+    <h1>Cross-Model <span class="grad">Prompt Matrix</span></h1>
+    <p class="hero-sub">同一个场景在 11 个 AI 视频生成模型上的最佳 prompt 对照。横向看清差异，纵向理解风格。Sora EOL 迁移、跨模型 A/B 测试、prompt-translator 训练数据。</p>
+  </section>
+
+  <div class="scenarios-tabs" id="scenariosTabs"></div>
+  <div id="anchor"></div>
+  <div class="models-grid" id="modelsGrid">
+    <div class="empty"><h3>加载中…</h3></div>
+  </div>
+</main>
+
+<div class="toast" id="toast">
+  <svg class="toast-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+    <polyline points="20 6 9 17 4 12"/>
+  </svg>
+  <span id="toastText">已复制到剪贴板</span>
+</div>
+
+<script>
+const MODEL_META = {
+  'seedance-2.0': { short: 'Seedance 2.0', dot: 'sd', color: '#fb923c' },
+  'happyhorse-1.0': { short: 'HappyHorse 1.0', dot: 'hh', color: '#38bdf8' },
+  'kling-3.0': { short: 'Kling 3.0', dot: 'kl', color: '#f472b6' },
+  'sora-2': { short: 'Sora 2 ⚠️', dot: 'so', color: '#34d399' },
+  'veo-3': { short: 'Veo 3.1', dot: 've', color: '#facc15' },
+  'runway-gen4': { short: 'Runway Gen-4.5', dot: 'rw', color: '#c084fc' },
+  'pika-2.5': { short: 'Pika 2.5', dot: 'pk', color: '#fda4af' },
+  'hailuo-02': { short: 'Hailuo 02', dot: 'hl', color: '#5eead4' },
+  'hunyuan-video': { short: 'Hunyuan 1.5', dot: 'hy', color: '#93c5fd' },
+  'wan-2.5': { short: 'Wan 2.7', dot: 'wn', color: '#fcd34d' },
+  'jimeng-3': { short: '即梦 AI', dot: 'jm', color: '#f9a8d4' }
+};
+const MODEL_ORDER = ['seedance-2.0','happyhorse-1.0','kling-3.0','sora-2','veo-3','runway-gen4','pika-2.5','hailuo-02','hunyuan-video','wan-2.5','jimeng-3'];
+
+let state = { data: null, current: 0 };
+
+async function loadData() {
+  try {
+    const resp = await fetch('../../prompts/data/cross-model-matrix.json');
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    state.data = await resp.json();
+    // URL hash 支持 #scene-N
+    const m = location.hash.match(/scene-(\d+)/);
+    if (m) state.current = Math.max(0, Math.min(state.data.scenarios.length - 1, parseInt(m[1]) - 1));
+    init();
+  } catch (e) { showFallback(e); }
+}
+
+function showFallback(err) {
+  document.getElementById('modelsGrid').innerHTML = `
+    <div class="empty">
+      <h3>无法加载对照矩阵</h3>
+      <p>错误: ${err.message}</p>
+      <pre>cd lanshu-awesome-ai-video-kit
+python3 -m http.server 8000
+# 打开 http://localhost:8000/tools/cross-model/</pre>
+    </div>`;
+}
+
+function init() {
+  renderTabs();
+  renderScenario();
+  bindEvents();
+}
+
+function renderTabs() {
+  document.getElementById('scenariosTabs').innerHTML = state.data.scenarios.map((s, i) => `
+    <button class="scenario-tab ${i === state.current ? 'active' : ''}" data-idx="${i}">
+      <span class="num">${i + 1}</span>${escapeHtml(s.title)}
+    </button>
+  `).join('');
+}
+
+function renderScenario() {
+  const s = state.data.scenarios[state.current];
+  // Anchor
+  const anchorHtml = `
+    <div class="anchor-card">
+      <div class="anchor-head">
+        <span class="anchor-title">${escapeHtml(s.title)}</span>
+        <span class="anchor-category">${escapeHtml(s.category)}</span>
+        <span class="anchor-use-case">适用：${escapeHtml(s.use_case)}</span>
+      </div>
+      <div class="anchor-grid">
+        ${Object.entries(s.core_anchor).map(([k, v]) => `
+          <div class="anchor-item">
+            <div class="anchor-item-label">${escapeHtml(labelFor(k))}</div>
+            <div class="anchor-item-value">${escapeHtml(typeof v === 'string' ? v : JSON.stringify(v))}</div>
+          </div>`).join('')}
+      </div>
+    </div>
+  `;
+  document.getElementById('anchor').innerHTML = anchorHtml;
+
+  // Models grid — 按 MODEL_ORDER 顺序
+  const grid = MODEL_ORDER.filter(id => s.by_model[id]).map(id => {
+    const m = MODEL_META[id];
+    const entry = s.by_model[id];
+    return `
+      <div class="model-card">
+        <div class="model-head">
+          <div class="model-orb" style="background: radial-gradient(circle at 30% 30%, ${shade(m.color, 25)}, ${m.color} 60%, ${shade(m.color, -20)}); color: ${m.color}"></div>
+          <div class="model-info">
+            <div class="model-name">${escapeHtml(m.short)}</div>
+            <div class="model-method">${escapeHtml(entry.method)}</div>
+          </div>
+          <button class="copy-btn" data-id="${id}">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            复制
+          </button>
+        </div>
+        <div class="prompt-body">${escapeHtml(entry.prompt)}</div>
+        ${renderVideoSlot(entry)}
+      </div>`;
+  }).join('');
+  document.getElementById('modelsGrid').innerHTML = grid;
+
+  // Bind copy
+  document.querySelectorAll('.copy-btn[data-id]').forEach(btn => {
+    btn.addEventListener('click', () => copyPrompt(btn.dataset.id));
+  });
+}
+
+function labelFor(k) {
+  return { subject: '主体', scene: '场景', motion: '动作', mood: '情绪', physics_key: '物理要点', dialogue: '对白', rule: '规则' }[k] || k;
+}
+
+function renderVideoSlot(entry) {
+  if (entry.effect_video_url) {
+    const rating = entry.subjective_rating ? '★'.repeat(entry.subjective_rating) + '☆'.repeat(5 - entry.subjective_rating) : '';
+    const meta = [entry.tested_by, entry.tested_at].filter(Boolean).join(' · ');
+    return `
+      <div class="video-slot">
+        <a class="video-btn" href="${escapeHtml(entry.effect_video_url)}" target="_blank" rel="noopener">
+          <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          实测视频
+        </a>
+        ${rating ? `<span class="video-rating" title="${entry.subjective_rating}/5">${rating}</span>` : ''}
+        ${meta ? `<span class="video-tested-meta">${escapeHtml(meta)}</span>` : ''}
+      </div>`;
+  }
+  return `
+    <div class="video-slot">
+      <a class="video-empty" href="../../CONTRIBUTING.md" target="_blank">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+        待实测 · 欢迎贡献
+      </a>
+    </div>`;
+}
+
+function bindEvents() {
+  document.getElementById('scenariosTabs').addEventListener('click', e => {
+    const tab = e.target.closest('[data-idx]');
+    if (!tab) return;
+    state.current = parseInt(tab.dataset.idx);
+    history.replaceState(null, '', `#scene-${state.current + 1}`);
+    renderTabs();
+    renderScenario();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+
+  document.getElementById('themeToggle').addEventListener('click', () => {
+    const cur = document.documentElement.getAttribute('data-theme');
+    const next = cur === 'light' ? 'dark' : 'light';
+    document.documentElement.setAttribute('data-theme', next);
+    try { localStorage.setItem('theme', next); } catch (e) {}
+    updateThemeIcon(next);
+  });
+}
+
+function updateThemeIcon(theme) {
+  const icon = document.getElementById('themeIcon');
+  if (theme === 'light') {
+    icon.innerHTML = '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>';
+  } else {
+    icon.innerHTML = '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>';
+  }
+}
+
+function copyPrompt(modelId) {
+  const s = state.data.scenarios[state.current];
+  const entry = s.by_model[modelId];
+  if (!entry) return;
+  const text = entry.prompt;
+
+  const onSuccess = () => {
+    showToast(`已复制 ${MODEL_META[modelId].short} 版本`);
+    const btn = document.querySelector(`.copy-btn[data-id="${modelId}"]`);
+    if (btn) {
+      btn.classList.add('copied');
+      const orig = btn.innerHTML;
+      btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>已复制`;
+      setTimeout(() => { btn.classList.remove('copied'); btn.innerHTML = orig; }, 1600);
+    }
+  };
+  const fallback = (t) => {
+    const ta = document.createElement('textarea');
+    ta.value = t; ta.style.cssText = 'position:fixed;left:-9999px;opacity:0';
+    document.body.appendChild(ta); ta.focus(); ta.select();
+    let ok = false; try { ok = document.execCommand('copy'); } catch (e) {}
+    document.body.removeChild(ta); return ok;
+  };
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).then(onSuccess).catch(() => {
+      if (fallback(text)) onSuccess(); else showToast('复制失败 — 请手动选中');
+    });
+  } else {
+    if (fallback(text)) onSuccess(); else showToast('复制失败 — 请手动选中');
+  }
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  document.getElementById('toastText').textContent = msg;
+  t.classList.add('show');
+  clearTimeout(showToast._timer);
+  showToast._timer = setTimeout(() => t.classList.remove('show'), 1800);
+}
+
+function escapeHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function shade(hex, percent) {
+  const num = parseInt(hex.slice(1), 16);
+  let r = (num >> 16) + percent * 2;
+  let g = ((num >> 8) & 0x00FF) + percent * 2;
+  let b = (num & 0x0000FF) + percent * 2;
+  r = Math.max(0, Math.min(255, r));
+  g = Math.max(0, Math.min(255, g));
+  b = Math.max(0, Math.min(255, b));
+  return '#' + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+}
+
+// Boot
+try {
+  const saved = localStorage.getItem('theme');
+  if (saved) { document.documentElement.setAttribute('data-theme', saved); updateThemeIcon(saved); }
+} catch (e) {}
+loadData();
+</script>
+
+<!-- 全站统一主题切换 -->
+<script src="/assets/site-theme.js" defer></script>
+</body>
+</html>

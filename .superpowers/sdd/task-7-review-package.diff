@@ -1,0 +1,1428 @@
+diff --git a/.superpowers/sdd/task-7-before/components/ProductionCanvas.tsx b/components/ProductionCanvas.tsx
+index e69de29..bfbe524 100644
+--- a/.superpowers/sdd/task-7-before/components/ProductionCanvas.tsx
++++ b/components/ProductionCanvas.tsx
+@@ -0,0 +1,61 @@
++import type { ReactNode } from 'react';
++import type { ProductionStageId, ProductionStageStatus } from '../lib/types';
++
++export type ProductionCanvasNode = {
++  id: string;
++  stage: ProductionStageId;
++  title: string;
++  summary: string;
++  status: ProductionStageStatus;
++  itemCount?: number;
++};
++
++type ProductionCanvasProps = {
++  nodes: ProductionCanvasNode[];
++  activeStage: ProductionStageId;
++  nextGeneratingStage: ProductionStageId | null;
++  reviewContent: ReactNode;
++  onSelectNode: (node: ProductionCanvasNode) => void;
++  onRegenerate: (node: ProductionCanvasNode) => void;
++  onReplace: (node: ProductionCanvasNode) => void;
++};
++
++export default function ProductionCanvas({
++  nodes,
++  activeStage,
++  nextGeneratingStage,
++  reviewContent,
++  onSelectNode,
++  onRegenerate,
++  onReplace
++}: ProductionCanvasProps) {
++  return (
++    <section className="production-canvas" aria-label="渐进式视频生产画板">
++      <div className="production-canvas-track">
++        {nodes.map((node) => (
++          <article className={`production-node ${node.status} ${activeStage === node.stage ? 'active' : ''}`} key={node.id}>
++            <button type="button" className="production-node-main" onClick={() => onSelectNode(node)}>
++              <span>{node.stage}</span>
++              <strong>{node.title}</strong>
++              <small>{node.summary}</small>
++              {typeof node.itemCount === 'number' && <em>{node.itemCount} 项</em>}
++            </button>
++            <div className="production-node-actions">
++              <button type="button" onClick={() => onRegenerate(node)} aria-label={`重新生成${node.title}`}>重新生成</button>
++              <button type="button" onClick={() => onReplace(node)} aria-label={`替换${node.title}`}>替换</button>
++            </div>
++          </article>
++        ))}
++        {nextGeneratingStage && (
++          <div className="production-next-skeleton" role="status" aria-live="polite">
++            <span>{nextGeneratingStage}</span>
++            <strong>生成中</strong>
++          </div>
++        )}
++      </div>
++      <section className="production-stage-review" aria-live="polite">
++        {reviewContent}
++      </section>
++    </section>
++  );
++}
+diff --git a/.superpowers/sdd/task-7-before/app/page.tsx b/app/page.tsx
+index 3e45128..7bdde0e 100644
+--- a/.superpowers/sdd/task-7-before/app/page.tsx
++++ b/app/page.tsx
+@@ -8,6 +8,7 @@ import type {
+   CharacterAsset,
+   PatchOperation,
+   ProductionStageId,
++  ProductionStageStatus,
+   WorkflowKind,
+   WorkspaceMode,
+   WorkspaceSnapshot
+@@ -42,11 +43,13 @@ import {
+ import {
+   productionFlowFromWorkspace,
+   beginStageGeneration,
++  canOpenProductionStage,
+   completeStageGeneration,
+   failStageGeneration,
+   markStageDraft,
+   nextProductionStage,
+   PRODUCTION_FLOW_PATH,
++  visibleProductionStages,
+   writeProductionFlow
+ } from '../lib/productionFlow';
+ import {
+@@ -85,6 +88,7 @@ import LeftRail, { type NavSection } from '../components/LeftRail';
+ import ContextSidebar, { type QueueEntry } from '../components/ContextSidebar';
+ import Inspector from '../components/Inspector';
+ import NavPage, { type NavPageKind } from '../components/NavPages';
++import ProductionCanvas, { type ProductionCanvasNode } from '../components/ProductionCanvas';
+ import {
+   AgentRuntime,
+   ApprovalQueue,
+@@ -397,8 +401,6 @@ type StageCamera = {
+ type ProductionDecision = {
+   title: string;
+   question: string;
+-  nextStage: StudioStageId;
+-  continueLabel: string;
+   revisionPrompt: string;
+   options: Array<{
+     label: string;
+@@ -635,8 +637,6 @@ function decisionCardForNode(node: StudioCanvasNode): ProductionDecision {
+   const templates: Record<StudioStageId, Omit<ProductionDecision, 'title' | 'revisionPrompt'>> = {
+     overview: {
+       question: '先确认这次 Mission 要走哪种生产配方，再让下游资产展开。',
+-      nextStage: 'script',
+-      continueLabel: '确认目标，继续写剧本',
+       options: [
+         {
+           label: '产品卖点视频',
+@@ -657,8 +657,6 @@ function decisionCardForNode(node: StudioCanvasNode): ProductionDecision {
+     },
+     script: {
+       question: '剧本确认后，选择下游如何从脚本抽取可复用资产。',
+-      nextStage: 'character',
+-      continueLabel: '确认剧本，继续抽角色',
+       options: [
+         {
+           label: '直接抽角色',
+@@ -679,8 +677,6 @@ function decisionCardForNode(node: StudioCanvasNode): ProductionDecision {
+     },
+     character: {
+       question: '角色是后续一致性的锚点，先决定使用现有资产还是重新生成。',
+-      nextStage: 'scene',
+-      continueLabel: '确认角色，继续场景设计',
+       options: [
+         {
+           label: '复用资产库',
+@@ -701,8 +697,6 @@ function decisionCardForNode(node: StudioCanvasNode): ProductionDecision {
+     },
+     scene: {
+       question: '场景决定视觉证据，先选“主图优先”还是“多视图优先”。',
+-      nextStage: 'storyboard',
+-      continueLabel: '确认场景，继续分镜设计',
+       options: [
+         {
+           label: '先出主图',
+@@ -723,8 +717,6 @@ function decisionCardForNode(node: StudioCanvasNode): ProductionDecision {
+     },
+     storyboard: {
+       question: '分镜进入视频前，选择更快的多图参考还是更可控的镜头板。',
+-      nextStage: 'video',
+-      continueLabel: '确认分镜，继续视频准备',
+       options: [
+         {
+           label: '多图参考',
+@@ -745,8 +737,6 @@ function decisionCardForNode(node: StudioCanvasNode): ProductionDecision {
+     },
+     video: {
+       question: '视频阶段只准备可提交任务，不在工作台里假装已经渲染成片。',
+-      nextStage: 'video',
+-      continueLabel: '确认视频任务',
+       options: [
+         {
+           label: '图生视频',
+@@ -784,6 +774,20 @@ function nodeStatusText(status: StudioCanvasNode['status'], patchCount = 0, depe
+   return '待生成';
+ }
+ 
++function productionStageStatusText(status: ProductionStageStatus) {
++  const labels: Record<ProductionStageStatus, string> = {
++    locked: '待生成',
++    generating: '生成中',
++    ready_for_review: '待审',
++    confirmed: '已确认',
++    stale: '需重审',
++    rendering: '生成中',
++    completed: '已完成',
++    failed: '失败'
++  };
++  return labels[status];
++}
++
+ function nodeStatusReason(node: StudioCanvasNode) {
+   if (node.patchCount > 0) return '该节点已有待审批改动，批准前不要把它当成已落地资产。';
+   if (node.status === 'ready') return '该节点已有可审查资产，可以继续向下游生产。';
+@@ -1436,6 +1440,7 @@ export default function Page() {
+   const [roleFaceAnchorDrafts, setRoleFaceAnchorDrafts] = useState<Record<string, string>>({});
+   const [roleDesignPreviewKinds, setRoleDesignPreviewKinds] = useState<Record<string, CharacterDesignOutputKind>>({});
+   const [roleDesignNotice, setRoleDesignNotice] = useState('');
++  const [scriptDraft, setScriptDraft] = useState('');
+   const videoPollTimerRef = useRef<number | null>(null);
+   const stageGenerationJobRef = useRef(new Map<ProductionStageId, string>());
+   const stageRunRef = useRef(new Map<ProductionStageId, StageRun>());
+@@ -1444,6 +1449,12 @@ export default function Page() {
+   const confirmationInFlightRef = useRef(new Set<string>());
+   const demoWorkspaceId = typeof window === 'undefined' ? null : demoIdFromQuery();
+ 
++  function focusInitialProductionStage(snapshot: WorkspaceSnapshot) {
++    const stage = productionFlowFromWorkspace(snapshot).currentStage;
++    setActiveTab(stage);
++    setSelectedNodeId(`node_${stage}`);
++  }
++
+   useEffect(() => {
+     let cancelled = false;
+ 
+@@ -1452,11 +1463,13 @@ export default function Page() {
+       if (!demoId) return false;
+       const savedDemo = readStoredWorkspace(demoStorageKey(demoId));
+       if (savedDemo) {
+-        setWorkspace(savedDemo);
+-        setWorkflow(savedDemo.activeWorkflow);
++        const restoredDemo = ensureProductionFlow(savedDemo);
++        setWorkspace(restoredDemo);
++        setWorkflow(restoredDemo.activeWorkflow);
+         setVideoSpec(defaultVideoSpec);
+         setInstruction('');
+-        setMessages([initialAssistantMessage(savedDemo.mode)]);
++        setMessages([initialAssistantMessage(restoredDemo.mode)]);
++        focusInitialProductionStage(restoredDemo);
+         return true;
+       }
+       const res = await fetch(`/api/demo-workspace/${encodeURIComponent(demoId)}`);
+@@ -1483,7 +1496,7 @@ export default function Page() {
+       setVideoSpec(defaultVideoSpec);
+       setInstruction('');
+       setMessages(demoMessages);
+-      setActiveTab('overview');
++      focusInitialProductionStage(demoWorkspace);
+       setNavSection('mission');
+       setRoleDesignDrafts({});
+       setRoleActiveVariantDrafts({});
+@@ -1502,6 +1515,7 @@ export default function Page() {
+       setVideoSpec(loadedSpec);
+       setInstruction('');
+       setMessages(shouldRestoreSavedMessages(loaded) && savedMessages ? JSON.parse(savedMessages) : [initialAssistantMessage(loaded.mode)]);
++      focusInitialProductionStage(loaded);
+     }
+ 
+     void loadDemoWorkspaceFromQuery()
+@@ -1616,6 +1630,10 @@ export default function Page() {
+   const scriptProofPreview = snippet(scriptBody, 12);
+   const scriptLineCount = scriptBody.split('\n').filter((line) => line.trim()).length;
+   const scriptPreview = snippet(scriptFile?.content || '', 14);
++
++  useEffect(() => {
++    setScriptDraft(scriptBody);
++  }, [scriptBody]);
+   const selectedPatch = pendingPatches.find((patch) => patch.id === selectedPatchId) || pendingPatches[0];
+   const allPendingPatchIds = useMemo(() => pendingPatches.map((patch) => patch.id), [pendingPatches]);
+   const lowRiskPatchIds = useMemo(
+@@ -1680,7 +1698,7 @@ export default function Page() {
+     });
+   }
+ 
+-  function beginManualStageRun(stage: 'character' | 'scene'): StageRun | null {
++  function beginManualStageRun(stage: ProductionStageId): StageRun | null {
+     if (!workspace) return null;
+     abortStageRunsFrom(stage);
+     const generationJobId = uid(`${stage}-manual`);
+@@ -2033,7 +2051,7 @@ export default function Page() {
+     setSelectedPatchId('');
+     setSelectedAssetId('');
+     setSelectedSceneId('');
+-    setSelectedNodeId('node_mission');
++    focusInitialProductionStage(next);
+     setNodeRevisionText('');
+     setRoleDesignDrafts({});
+     setRoleActiveVariantDrafts({});
+@@ -2245,7 +2263,6 @@ export default function Page() {
+     selectedAssetFileName === 'asset_prompts.json'
+       ? formatAssetPromptsReview(assetPrompts)
+       : selectedAssetRawBody;
+-  const selectedAssetTitle = selectedAsset?.title || (selectedAssetFileName === 'script.md' ? '脚本正文' : '成果文件');
+   const selectedAssetIsScript = selectedAssetFileName === 'script.md' || selectedAsset?.type === 'script';
+   const activeInspectorPatch =
+     activeTab === 'video'
+@@ -2895,7 +2912,38 @@ export default function Page() {
+       assetId: promptAsset?.id
+     }
+   ];
++  const productionFlow = productionFlowFromWorkspace(workspace);
++  const activeProductionStage: ProductionStageId = activeTab === 'overview' ? productionFlow.currentStage : activeTab;
++  const productionReviewHeading: Record<ProductionStageId, string> = {
++    script: '脚本审查',
++    character: '角色审查',
++    scene: '场景审查',
++    storyboard: '分镜审查',
++    video: '视频任务审查'
++  };
++  const nextGeneratingStage = productionFlow.stages[productionFlow.currentStage].status === 'generating'
++    ? productionFlow.currentStage
++    : null;
++  const visibleCanvasNodes: ProductionCanvasNode[] = visibleProductionStages(productionFlow).filter((stage) => stage !== nextGeneratingStage).map((stage) => {
++    const source = canvasNodes.find((node) => node.stage === stage);
++    const record = productionFlow.stages[stage];
++    return {
++      id: source?.id || `node_${stage}`,
++      stage,
++      title: source?.title || studioStageName(stage),
++      summary: source?.summary || record.error || '等待可审查的生产资产',
++      status: record.status,
++      itemCount: source?.childCount
++    };
++  });
++  const productionStageLockReason = (stage: ProductionStageId) => {
++    const index = ['script', 'character', 'scene', 'storyboard', 'video'].indexOf(stage);
++    const predecessor = index > 0 ? ['script', 'character', 'scene', 'storyboard', 'video'][index - 1] : null;
++    return predecessor ? `未解锁：请先确认${studioStageName(predecessor as ProductionStageId)}` : '未解锁：等待脚本生成';
++  };
+   const selectedNode = canvasNodes.find((node) => node.id === selectedNodeId) || canvasNodes.find((node) => node.stage === activeTab) || canvasNodes[0];
++  const selectedProductionStage: ProductionStageId = selectedNode?.stage === 'overview' ? 'script' : selectedNode?.stage || 'script';
++  const selectedProductionRecord = productionFlow.stages[selectedProductionStage];
+   const selectedDecision = selectedNode ? decisionCardForNode(selectedNode) : null;
+   const selectedNodePatches = selectedNode ? pendingPatches.filter((patch) => patchTouchesNode(patch, selectedNode)) : [];
+   const selectedNodePatchIds = selectedNodePatches.map((patch) => patch.id);
+@@ -3132,10 +3180,41 @@ export default function Page() {
+     const revision = flow.stages[stage].status === 'confirmed';
+     void requestStageDraft(stage, workspace, undefined, node.action, messages.slice(-10), revision);
+   }
+-  function continueFromDecision() {
+-    if (!selectedNode) return;
+-    const stage: ProductionStageId = selectedNode.stage === 'overview' ? 'script' : selectedNode.stage;
+-    void confirmProductionStage(stage);
++
++  function saveScriptDraft() {
++    if (!workspace) return;
++    const nextBody = scriptDraft.trim();
++    if (!nextBody) {
++      setError('脚本正文不能为空。');
++      return;
++    }
++    const run = beginManualStageRun('script');
++    if (!run) return;
++    const patchId = uid('patch');
++    setWorkspace((current) => {
++      if (!current || !isCurrentStageRun('script', run.generationJobId, run.token)) return current;
++      const flow = productionFlowFromWorkspace(current);
++      const record = flow.stages.script;
++      if (record.status !== 'generating' || record.generationJobId !== run.generationJobId) return current;
++      const before = getFile(current, 'script.md')?.content || '';
++      const proposed = applyPatchesForPreview(current, readPendingPatches(current)) || current;
++      if (nextBody === getFile(proposed, 'script.md')?.content) return current;
++      const patch: PatchOperation = {
++        id: patchId,
++        filePath: 'script.md',
++        summary: '保存脚本正文修改，等待阶段确认',
++        before,
++        after: nextBody,
++        riskLevel: 'low',
++        requiresApproval: true
++      };
++      const pending = [...readPendingPatches(current).filter((item) => item.filePath !== 'script.md'), patch];
++      return writeProductionFlow(
++        savePendingPatches(current, pending),
++        markStageDraft(flow, { stage: 'script', generationJobId: run.generationJobId, sourceVersions: record.sourceVersions })
++      );
++    });
++    setSelectedPatchId(patchId);
+   }
+   function renderProductionDecision(decision: ProductionDecision) {
+     return (
+@@ -3161,8 +3240,8 @@ export default function Page() {
+           <button type="button" className="btn sm" onClick={() => setNodeRevisionText(decision.revisionPrompt)}>
+             <IconWand /> 我要修改
+           </button>
+-          <button type="button" className="btn primary sm" onClick={continueFromDecision}>
+-            <IconCheck /> 确认并继续
++          <button type="button" className="btn sm" onClick={() => focusStudioStage(selectedProductionStage)}>
++            <IconLayers /> 返回当前阶段审查
+           </button>
+         </div>
+       </section>
+@@ -3874,18 +3953,25 @@ export default function Page() {
+                   <strong>{brief.title}</strong>
+                 </div>
+                 <nav className="studio-stage-nav" role="tablist" aria-label="创作阶段">
+-                  {studioStages.map((stage) => (
+-                    <button
+-                      key={stage.id}
+-                      type="button"
+-                      role="tab"
+-                      aria-label={`聚焦${stage.label}阶段`}
+-                      className={activeTab === stage.id ? 'active' : ''}
+-                      onClick={() => focusStudioStage(stage.id)}
+-                    >
+-                      {stage.label}
+-                    </button>
+-                  ))}
++                  {studioStages.map((stage) => {
++                    const stageOpen = stage.id === 'overview' || canOpenProductionStage(productionFlow, stage.id);
++                    const lockReason = stage.id === 'overview' ? '' : productionStageLockReason(stage.id);
++                    return (
++                      <button
++                        key={stage.id}
++                        type="button"
++                        role="tab"
++                        aria-label={stageOpen ? `聚焦${stage.label}阶段` : lockReason}
++                        aria-disabled={!stageOpen}
++                        disabled={!stageOpen}
++                        title={stageOpen ? `聚焦${stage.label}阶段` : lockReason}
++                        className={activeTab === stage.id ? 'active' : ''}
++                        onClick={() => focusStudioStage(stage.id)}
++                      >
++                        {stage.label}{!stageOpen && <small>未解锁</small>}
++                      </button>
++                    );
++                  })}
+                 </nav>
+                 <div className="studio-top-actions">
+                   <div className="mode-switch" role="group" aria-label="创作模式">
+@@ -3913,146 +3999,31 @@ export default function Page() {
+               </header>
+ 
+               <div className="studio-canvas">
+-                <section className="asset-canvas" aria-label="资产画布">
+-                  <div className="asset-canvas-head">
+-                    <div>
+-                      <small>Mission Map</small>
+-                      <strong>资产依赖图</strong>
+-                    </div>
+-                    <div className="map-legend" aria-label="节点状态说明">
+-                      <span><i className="ready" /> 已确认</span>
+-                      <span><i className="warning" /> 待审</span>
+-                      <span><i className="stale" /> 过期</span>
+-                      <span><i className="needs_review" /> 重审</span>
+-                      <span><i className="draft" /> 待生成</span>
+-                    </div>
+-                  </div>
+-                  <div className="canvas-viewport">
+-                    <div className="canvas-path" style={cameraStyle}>
+-                      {canvasNodes.map((node, index) => {
+-                        const nodeLibraryKey = libraryKeyFor(node);
+-                        const nodeInLibrary = libraryKeys.has(nodeLibraryKey);
+-                        const nodePendingLibrary = pendingLibraryItems.some((item) => libraryItemKey(item) === nodeLibraryKey);
+-                        const nodeCanEnterLibrary =
+-                          isNodeStableForLibrary(node, workspace) && !nodeInLibrary && !nodePendingLibrary;
+-                        return (
+-                          <div className={`canvas-step stage-${node.stage}`} key={node.id}>
+-                            <div className="canvas-node-shell">
+-                              <button
+-                                type="button"
+-                                className={`canvas-node ${node.status} ${node.dependencyState} ${selectedNode?.id === node.id ? 'selected' : ''} ${node.patchCount ? 'has-patch' : ''}`}
+-                                onClick={() => selectCanvasNode(node)}
+-                              >
+-                                <span className="node-meta">
+-                                  <span className="node-label">{node.label}</span>
+-                                  <span className="node-owner">{node.owner}</span>
+-                                </span>
+-                                <strong>{node.title}</strong>
+-                                <small>{node.summary}</small>
+-                                <span className="node-foot">
+-                                  <span>{nodeStatusText(node.status, node.patchCount, node.dependencyState)}</span>
+-                                  {typeof node.childCount === 'number' && <span>{node.childCount} 项</span>}
+-                                </span>
+-                              </button>
+-                              <div className="node-asset-actions" aria-label={`${node.label}资产操作`}>
+-                                <button type="button" onClick={() => selectCanvasNode(node)} title={`预览${node.label}资产`}>
+-                                  <IconList /> 预览
+-                                </button>
+-                                <button
+-                                  type="button"
+-                                  onClick={() => {
+-                                    selectCanvasNode(node);
+-                                    regenerateProductionStage(node);
+-                                  }}
+-                                  title={`重新生成${node.label}`}
+-                                >
+-                                  <IconRefresh /> 重新生成
+-                                </button>
+-                                <button
+-                                  type="button"
+-                                  onClick={() => {
+-                                    selectCanvasNode(node);
+-                                    setNodeRevisionText(`替换资产「${node.title}」：请只修改 ${node.filePath}，并说明对下游的影响。`);
+-                                  }}
+-                                  title={`替换${node.label}资产`}
+-                                >
+-                                  <IconStack /> 替换资产
+-                                </button>
+-                                <button
+-                                  type="button"
+-                                  disabled={!nodeCanEnterLibrary}
+-                                  onClick={() => proposeAssetLibraryPatch(node)}
+-                                  title={nodeCanEnterLibrary ? `将${node.label}入库` : '只有稳定节点才能入库'}
+-                                >
+-                                  <IconGitMerge /> 入库
+-                                </button>
+-                              </div>
+-                            </div>
+-                            {index < canvasNodes.length - 1 && (
+-                              <span className={`canvas-link ${node.status}`}>
+-                                <span>{canvasEdgeLabel(node.stage)}</span>
+-                              </span>
+-                            )}
+-                          </div>
+-                        );
+-                      })}
+-                    </div>
+-                    <div className="canvas-camera-hud">
+-                      <span>{activeStageCamera.label}</span>
+-                      <strong>{Math.round(activeStageCamera.zoom * 100)}%</strong>
+-                      <small>{activeStageCamera.hint}</small>
+-                    </div>
+-                  </div>
+-                  {selectedNode && (
+-                    <div className="canvas-selection">
+-                      <span>{selectedNode.label}</span>
+-                      <strong>{nodeStatusReason(selectedNode)}</strong>
+-                      <small>{selectedNode.dependencyReason}</small>
+-                    </div>
+-                  )}
+-                  <div className="asset-proof-strip" aria-label="已生成资产预览">
+-                    <article className="script-proof-card">
+-                      <div className="proof-card-head">
+-                        <span>已生成脚本</span>
+-                        <strong>{hasScriptOutput ? `${scriptLineCount} 行正文` : '待生成'}</strong>
+-                      </div>
+-                      <pre>{hasScriptOutput ? scriptProofPreview : '脚本正文还没有生成。先让制作助理写入 script.md，再审查开头、冲突、台词和 CTA。'}</pre>
+-                      <button type="button" className="btn sm" onClick={revealScriptOutput}>
+-                        <IconScript /> 查看全文
+-                      </button>
+-                    </article>
+-                    <div className="character-proof-list">
+-                      {visibleCharacterAssets.length ? (
+-                        visibleCharacterAssets.slice(0, 2).map((character) => (
+-                          <article className="character-proof-card" key={character.id}>
+-                            <span>{character.role}</span>
+-                            <strong>{character.name}</strong>
+-                            <p>{character.description}</p>
+-                            <button type="button" className="btn primary sm" disabled={characterAssetIssues.length > 0} title={characterAssetIssues[0] || ''} onClick={() => void confirmProductionStage('character')}>
+-                              <IconCheck /> 确认角色
+-                            </button>
+-                            {characterAssetIssues[0] && <small>{characterAssetIssues[0]}</small>}
+-                          </article>
+-                        ))
+-                      ) : (
+-                        <article className="character-proof-card empty-proof">
+-                          <span>角色</span>
+-                          <strong>待生成角色卡</strong>
+-                          <p>角色还没有从剧本中抽取出来。先生成或补齐 characters.json。</p>
+-                          <button type="button" className="btn sm" onClick={() => focusStudioStage('character')}>
+-                            <IconUsers /> 查看角色
+-                          </button>
+-                        </article>
+-                      )}
+-                    </div>
+-                  </div>
+-                </section>
+-
+-                <section className="studio-board">
++                <ProductionCanvas
++                  nodes={visibleCanvasNodes}
++                  activeStage={activeProductionStage}
++                  nextGeneratingStage={nextGeneratingStage}
++                  onSelectNode={(node) => {
++                    const source = canvasNodes.find((item) => item.id === node.id);
++                    if (source) selectCanvasNode(source);
++                    else focusStudioStage(node.stage);
++                  }}
++                  onRegenerate={(node) => {
++                    const source = canvasNodes.find((item) => item.id === node.id);
++                    if (source) regenerateProductionStage(source);
++                  }}
++                  onReplace={(node) => {
++                    const source = canvasNodes.find((item) => item.id === node.id);
++                    if (!source) return;
++                    selectCanvasNode(source);
++                    setNodeRevisionText(`替换资产「${source.title}」：请只修改 ${source.filePath}，并说明对下游的影响。`);
++                  }}
++                  reviewContent={<>
++                <section className="production-review-workspace">
+                   <div className="studio-board-head">
+                     <div>
+                       <small>{studioStageLabel}</small>
+-                      <h1>{activeTab === 'overview' ? previewInfo.hook : selectedAssetTitle}</h1>
++                      <h1>{activeTab === 'overview' ? previewInfo.hook : productionReviewHeading[activeProductionStage]}</h1>
+                     </div>
+                     {pendingPatches.length > 0 && (
+                       <span className="package-review-badge">
+@@ -4061,58 +4032,6 @@ export default function Page() {
+                     )}
+                   </div>
+ 
+-                  {pendingPatches.length > 0 && (
+-                    <section className="package-review-panel" aria-label="制作包待审">
+-                      <div className="package-review-head">
+-                        <div>
+-                          <small>Patch Review</small>
+-                          <strong>制作包待审</strong>
+-                          <span>先审查每个文件改动，再决定合并或拒绝。</span>
+-                        </div>
+-                        <div className="package-review-actions">
+-                          {lowRiskPatchIds.length > 0 && lowRiskPatchIds.length < pendingPatches.length && (
+-                            <button type="button" className="btn sm" onClick={() => approvePatchIds(lowRiskPatchIds)}>
+-                              <IconCheck /> 合并低风险 {lowRiskPatchIds.length}
+-                            </button>
+-                          )}
+-                          <button type="button" className="btn sm primary" onClick={() => approvePatchIds(allPendingPatchIds)}>
+-                            <IconGitMerge /> 合并全部 {pendingPatches.length}
+-                          </button>
+-                        </div>
+-                      </div>
+-                      <div className="package-review-stages" aria-label="待审阶段">
+-                        {patchReviewStageCounts.map((stage) => (
+-                          <span key={stage.id}>
+-                            {stage.label}
+-                            <strong>{stage.count}</strong>
+-                          </span>
+-                        ))}
+-                      </div>
+-                      <div className="package-review-list">
+-                        {pendingPatches.map((patch) => (
+-                          <article className={`package-patch-row ${selectedPatch?.id === patch.id ? 'selected' : ''}`} key={patch.id}>
+-                            <button type="button" className="package-patch-main" onClick={() => setSelectedPatchId(patch.id)}>
+-                              <span className={`package-patch-risk ${patch.riskLevel}`}>{patchRiskLabel(patch.riskLevel)}</span>
+-                              <span className="package-patch-copy">
+-                                <strong>{patch.filePath}</strong>
+-                                <small>{patch.summary}</small>
+-                              </span>
+-                              <span className="package-patch-stage">{studioStageName(patchReviewStage(patch))}</span>
+-                            </button>
+-                            <div className="package-patch-actions">
+-                              <button type="button" className="btn sm danger" onClick={() => rejectPatchIds([patch.id])}>
+-                                <IconX /> 拒绝
+-                              </button>
+-                              <button type="button" className="btn sm primary" onClick={() => approvePatchIds([patch.id])}>
+-                                <IconGitMerge /> 合并
+-                              </button>
+-                            </div>
+-                          </article>
+-                        ))}
+-                      </div>
+-                    </section>
+-                  )}
+-
+                   {activeTab === 'overview' && (
+                     <div className="studio-overview-grid">
+                       <div className="studio-kpi accent">
+@@ -4135,9 +4054,23 @@ export default function Page() {
+                   )}
+ 
+                   {activeTab === 'script' && (
+-                    <div className="studio-script-preview">
+-                      <pre className="script-output">{selectedAssetBody}</pre>
+-                    </div>
++                    <section className="production-script-review">
++                      <label htmlFor="production-script-body">完整脚本</label>
++                      <textarea
++                        id="production-script-body"
++                        value={scriptDraft}
++                        onChange={(event) => setScriptDraft(event.target.value)}
++                        placeholder="脚本正文会显示在这里。"
++                      />
++                      <div className="production-review-actions">
++                        <button type="button" className="btn sm" onClick={saveScriptDraft} disabled={!scriptDraft.trim()}>
++                          <IconGitMerge /> 保存修改
++                        </button>
++                        <button type="button" className="btn primary" onClick={() => void confirmProductionStage('script')}>
++                          <IconCheck /> 确认脚本并生成角色
++                        </button>
++                      </div>
++                    </section>
+                   )}
+ 
+                   {activeTab === 'character' && (
+@@ -4390,18 +4323,6 @@ export default function Page() {
+                                       >
+                                         <IconGitMerge /> 写入角色草稿
+                                       </button>
+-                                      <button
+-                                        type="button"
+-                                        className="btn sm"
+-                                        disabled={characterAssetIssues.length > 0}
+-                                        title={characterAssetIssues[0] || ''}
+-                                        onClick={() => {
+-                                          void confirmProductionStage('character');
+-                                        }}
+-                                      >
+-                                        <IconCheck /> 确认并继续场景
+-                                      </button>
+-                                      {characterAssetIssues[0] && <small className="character-confirm-reason">{characterAssetIssues[0]}</small>}
+                                     </div>
+                                   </section>
+                                 </div>
+@@ -4414,6 +4335,18 @@ export default function Page() {
+                           角色资产会从已确认剧本中抽取。请让制作助理补齐角色外观、服装、表情、风格和跨镜头一致性。
+                         </div>
+                       )}
++                      <div className="production-review-actions stage-confirmation">
++                        <button
++                          type="button"
++                          className="btn primary"
++                          disabled={characterAssetIssues.length > 0}
++                          title={characterAssetIssues[0] || ''}
++                          onClick={() => void confirmProductionStage('character')}
++                        >
++                          <IconCheck /> 确认角色并生成场景
++                        </button>
++                        {characterAssetIssues[0] && <small>{characterAssetIssues[0]}</small>}
++                      </div>
+                     </div>
+                   )}
+ 
+@@ -4450,7 +4383,7 @@ export default function Page() {
+                       }) : <div className="empty">场景资产会在剧本和角色确认后出现。</div>}
+                       <div className="scene-confirmation">
+                         <button type="button" className="btn primary sm" disabled={sceneAssetIssues.length > 0} title={sceneAssetIssues[0] || ''} onClick={() => void confirmProductionStage('scene')}>
+-                          <IconCheck /> 确认场景，继续分镜
++                          <IconCheck /> 确认场景并生成分镜
+                         </button>
+                         {sceneAssetIssues[0] && <small>{sceneAssetIssues[0]}</small>}
+                       </div>
+@@ -4458,13 +4391,37 @@ export default function Page() {
+                   )}
+ 
+                   {activeTab === 'storyboard' && (
+-                    <StoryboardView
+-                      shots={storyboard}
+-                      selectedId={activeScene?.id || ''}
+-                      cameraMove={cameraMoveLabel(videoSpec.cameraMove)}
+-                      onSelect={selectScene}
+-                      onRewrite={rewriteShot}
+-                    />
++                    <div className="production-storyboard-review">
++                      <div className="storyboard">
++                        {storyboard.map((shot, index) => {
++                          const record = safeParseJson<{ scenes?: Array<Record<string, unknown>> }>(getFile(proposedWorkspace, 'storyboard.json')?.content || '', {})
++                            .scenes?.find((item) => item.id === shot.id) || {};
++                          const value = (key: string, fallback = '未标注') => typeof record[key] === 'string' ? record[key] : fallback;
++                          const list = (key: string) => Array.isArray(record[key]) ? record[key].filter((item): item is string => typeof item === 'string').join('、') : value(key);
++                          return (
++                            <article className="production-storyboard-card" key={shot.id}>
++                              <header><span>镜头 {String(index + 1).padStart(2, '0')}</span><strong>{shot.durationSeconds}s</strong></header>
++                              <dl>
++                                <div><dt>脚本段落</dt><dd>{value('scriptSegment', shot.subtitle || shot.title)}</dd></div>
++                                <div><dt>角色</dt><dd>{list('characterIds')}</dd></div>
++                                <div><dt>场景</dt><dd>{value('sceneId', shot.title)}</dd></div>
++                                <div><dt>景别</dt><dd>{value('shotSize')}</dd></div>
++                                <div><dt>运镜</dt><dd>{value('cameraMove', cameraMoveLabel(videoSpec.cameraMove))}</dd></div>
++                                <div><dt>动作</dt><dd>{value('action', shot.visual)}</dd></div>
++                                <div><dt>对白</dt><dd>{value('dialogue', shot.subtitle)}</dd></div>
++                                <div><dt>首帧引用</dt><dd>{value('firstFrameReference', value('referenceImageUrl'))}</dd></div>
++                              </dl>
++                              <button type="button" className="btn sm" onClick={() => rewriteShot(shot.id, 'visual')}><IconWand /> 修改镜头</button>
++                            </article>
++                          );
++                        })}
++                      </div>
++                      <div className="production-review-actions stage-confirmation">
++                        <button type="button" className="btn primary" onClick={() => void confirmProductionStage('storyboard')}>
++                          <IconCheck /> 确认分镜并生成视频任务
++                        </button>
++                      </div>
++                    </div>
+                   )}
+ 
+                   {activeTab === 'video' && (
+@@ -4488,8 +4445,6 @@ export default function Page() {
+                           renderQueue: committedPrompts.renderQueue
+                         }}
+                         renderState={videoRender}
+-                        onRender={() => void submitVideoRender()}
+-                        onPoll={() => void pollVideoRender()}
+                         onPrepare={() => workspace && void requestStageDraft(
+                           'video',
+                           workspace,
+@@ -4499,9 +4454,16 @@ export default function Page() {
+                           true
+                         )}
+                       />
++                      <div className="production-review-actions stage-confirmation">
++                        <button type="button" className="btn primary" onClick={() => void confirmProductionStage('video')}>
++                          <IconCheck /> 确认视频任务并开始生成
++                        </button>
++                      </div>
+                     </div>
+                   )}
+                 </section>
++                  </>}
++                />
+               </div>
+             </section>
+ 
+@@ -4518,7 +4480,7 @@ export default function Page() {
+                     <IconLayers />
+                     <div>
+                       <strong>{selectedNode.title}</strong>
+-                      <small>{selectedNode.owner} · {nodeStatusText(selectedNode.status, selectedNode.patchCount, selectedNode.dependencyState)}</small>
++                          <small>{selectedNode.owner} · {productionStageStatusText(selectedProductionRecord.status)}</small>
+                     </div>
+                   </div>
+                   <div className={`dependency-health ${selectedNode.dependencyState}`}>
+@@ -4526,6 +4488,12 @@ export default function Page() {
+                     <strong>{selectedNode.dependencySource}</strong>
+                     <p>{selectedNode.dependencyReason}</p>
+                   </div>
++                  <dl className="production-confirmation-record" aria-label="阶段确认记录">
++                    <div><dt>已确认版本</dt><dd>{selectedProductionRecord.confirmedVersion ?? '未确认'}</dd></div>
++                    <div><dt>确认时间</dt><dd>{selectedProductionRecord.confirmedAt || '未确认'}</dd></div>
++                    <div><dt>确认人</dt><dd>{selectedProductionRecord.confirmedBy || '未确认'}</dd></div>
++                    <div><dt>来源版本</dt><dd>{Object.entries(selectedProductionRecord.sourceVersions).map(([path, version]) => `${path}@${version}`).join('，') || '无'}</dd></div>
++                  </dl>
+                   {selectedDecision && renderProductionDecision(selectedDecision)}
+                   <div className="node-detail-grid">
+                     <div>
+@@ -4658,19 +4626,6 @@ export default function Page() {
+                 </div>
+               </section>
+ 
+-              {activeTab === 'script' && selectedAssetBody.trim() && (
+-                <section className="studio-inspector-panel script-review-panel">
+-                  <div className="studio-inspector-title">
+-                    <IconScript />
+-                    <div>
+-                      <strong>{selectedAssetTitle}</strong>
+-                      <small>{selectedAssetFileName}</small>
+-                    </div>
+-                  </div>
+-                  <pre className="script-output">{selectedAssetBody}</pre>
+-                </section>
+-              )}
+-
+               {activeTab === 'video' && (
+                 <section className="studio-inspector-panel">
+                   <div className="studio-inspector-title">
+@@ -4690,19 +4645,6 @@ export default function Page() {
+                 </section>
+               )}
+ 
+-              {activeTab !== 'script' && activeTab !== 'video' && (
+-                <section className="studio-inspector-panel">
+-                  <div className="studio-inspector-title">
+-                    <IconStack />
+-                    <div>
+-                      <strong>{selectedAssetTitle}</strong>
+-                      <small>{selectedAssetFileName}</small>
+-                    </div>
+-                  </div>
+-                  <pre className="script-output">{selectedAssetBody || previewInfo.sub}</pre>
+-                </section>
+-              )}
+-
+               <details className="fold studio-fold">
+                 <summary>
+                   <IconGauge style={{ width: 17, height: 17, color: 'var(--text-3)' }} />
+diff --git a/.superpowers/sdd/task-7-before/app/globals.css b/app/globals.css
+index f791670..305e162 100644
+--- a/.superpowers/sdd/task-7-before/app/globals.css
++++ b/app/globals.css
+@@ -4019,86 +4019,6 @@ details.fold .fold-body {
+   font-size: 11.5px;
+   line-height: 1.45;
+ }
+-.asset-proof-strip {
+-  display: grid;
+-  grid-template-columns: minmax(0, 1.45fr) minmax(240px, 0.9fr);
+-  gap: 10px;
+-  margin-top: 10px;
+-  color: var(--text-on-dark);
+-}
+-.script-proof-card,
+-.character-proof-card {
+-  min-width: 0;
+-  border-radius: var(--r-md);
+-  border: 1px solid rgba(255, 255, 255, 0.1);
+-  background: rgba(255, 255, 255, 0.075);
+-  backdrop-filter: blur(10px);
+-}
+-.script-proof-card {
+-  display: grid;
+-  gap: 8px;
+-  padding: 12px;
+-}
+-.proof-card-head {
+-  display: flex;
+-  align-items: center;
+-  justify-content: space-between;
+-  gap: 10px;
+-}
+-.proof-card-head span,
+-.character-proof-card span {
+-  color: #9decc4;
+-  font-size: 11px;
+-  font-weight: 850;
+-}
+-.proof-card-head strong {
+-  color: rgba(238, 243, 240, 0.72);
+-  font-size: 11px;
+-  font-weight: 800;
+-}
+-.script-proof-card pre {
+-  max-height: 168px;
+-  min-height: 96px;
+-  margin: 0;
+-  overflow: auto;
+-  white-space: pre-wrap;
+-  color: rgba(238, 243, 240, 0.82);
+-  font-family: var(--font-mono);
+-  font-size: 11.5px;
+-  line-height: 1.55;
+-}
+-.script-proof-card .btn,
+-.character-proof-card .btn {
+-  min-height: 30px;
+-}
+-.character-proof-list {
+-  display: grid;
+-  gap: 8px;
+-  min-width: 0;
+-}
+-.character-proof-card {
+-  display: grid;
+-  gap: 6px;
+-  padding: 11px;
+-}
+-.character-proof-card strong {
+-  color: var(--text-on-dark);
+-  font-size: 13px;
+-  line-height: 1.25;
+-}
+-.character-proof-card p {
+-  display: -webkit-box;
+-  -webkit-line-clamp: 3;
+-  -webkit-box-orient: vertical;
+-  overflow: hidden;
+-  margin: 0;
+-  color: rgba(238, 243, 240, 0.66);
+-  font-size: 11.5px;
+-  line-height: 1.45;
+-}
+-.character-proof-card.empty-proof {
+-  border-style: dashed;
+-}
+ .canvas-camera-hud {
+   position: absolute;
+   right: 10px;
+@@ -5229,6 +5149,105 @@ details.fold .fold-body {
+   margin-top: 14px;
+ }
+ 
++.production-canvas {
++  min-height: calc(100vh - var(--topbar-h) - 48px);
++  display: grid;
++  grid-template-rows: auto minmax(0, 1fr);
++  gap: 18px;
++  padding: 18px;
++  border: 1px solid #202b27;
++  border-radius: 8px;
++  background:
++    linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
++    linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px),
++    #111814;
++  background-size: 28px 28px;
++}
++.production-canvas-track {
++  display: grid;
++  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
++  gap: 10px;
++  align-items: stretch;
++}
++.production-node,
++.production-next-skeleton {
++  min-width: 0;
++  min-height: 156px;
++  display: grid;
++  grid-template-rows: minmax(0, 1fr) auto;
++  overflow: hidden;
++  border: 1px solid rgba(222, 235, 227, 0.14);
++  border-radius: 8px;
++  background: rgba(19, 28, 24, 0.9);
++  color: #edf4ef;
++}
++.production-node.active { border-color: rgba(80, 211, 145, 0.78); box-shadow: inset 0 0 0 1px rgba(80, 211, 145, 0.22); }
++.production-node.ready_for_review { border-color: rgba(239, 188, 76, 0.72); }
++.production-node.confirmed { border-color: rgba(80, 211, 145, 0.54); }
++.production-node.failed,
++.production-node.stale { border-color: rgba(255, 120, 89, 0.72); }
++.production-node-main {
++  min-width: 0;
++  min-height: 112px;
++  display: grid;
++  align-content: start;
++  gap: 7px;
++  padding: 14px;
++  border: 0;
++  background: transparent;
++  color: inherit;
++  text-align: left;
++}
++.production-node-main:hover { background: rgba(255, 255, 255, 0.035); }
++.production-node-main:focus-visible,
++.production-node-actions button:focus-visible { outline: 2px solid #58d894; outline-offset: -2px; }
++.production-node-main > span { color: #98c9ae; font: 800 10px var(--font-mono); text-transform: uppercase; }
++.production-node-main strong { overflow: hidden; font-size: 14px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
++.production-node-main small { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 3; color: rgba(237, 244, 239, 0.62); font-size: 11.5px; line-height: 1.45; }
++.production-node-main em { justify-self: start; color: #a2d7b9; font-size: 11px; font-style: normal; font-weight: 800; }
++.production-node-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-top: 1px solid rgba(222, 235, 227, 0.1); }
++.production-node-actions button { min-width: 0; min-height: 38px; padding: 5px 8px; border: 0; border-right: 1px solid rgba(222, 235, 227, 0.1); background: transparent; color: rgba(237, 244, 239, 0.72); font: 750 11px inherit; overflow-wrap: anywhere; }
++.production-node-actions button:last-child { border-right: 0; }
++.production-node-actions button:hover { background: rgba(80, 211, 145, 0.1); color: #dff6e8; }
++.production-next-skeleton { position: relative; padding: 14px; align-content: center; gap: 7px; color: #d8e5dd; overflow: hidden; }
++.production-next-skeleton::after { position: absolute; inset: 0; content: ""; background: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, 0.075) 50%, transparent 70%); animation: production-skeleton 1.4s ease-in-out infinite; }
++.production-next-skeleton span { color: #8ebba1; font: 800 10px var(--font-mono); text-transform: uppercase; }
++.production-next-skeleton strong { font-size: 14px; }
++@keyframes production-skeleton { from { transform: translateX(-90%); } to { transform: translateX(90%); } }
++.production-stage-review {
++  min-width: 0;
++  padding: 16px;
++  border: 1px solid #dce4df;
++  border-radius: 8px;
++  background: #f7f9f7;
++  color: var(--text);
++}
++.production-review-workspace { min-width: 0; color: var(--text); }
++.production-review-workspace .studio-board-head { margin-bottom: 16px; color: var(--text); }
++.production-review-workspace .studio-board-head h1 { color: var(--text); }
++.production-script-review { display: grid; gap: 10px; }
++.production-script-review > label { color: var(--text-2); font-size: 12px; font-weight: 800; }
++.production-script-review textarea { width: 100%; min-height: 440px; resize: vertical; padding: 14px; border: 1px solid var(--border-strong); border-radius: 8px; background: #fcfdfc; color: var(--text); font: 13px/1.65 var(--font-mono); }
++.production-script-review textarea:focus { outline: 2px solid var(--ring); border-color: var(--accent); }
++.production-review-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding-top: 10px; border-top: 1px solid var(--border); }
++.production-review-actions small { color: var(--danger); font-size: 12px; font-weight: 700; }
++.stage-confirmation { margin-top: 14px; }
++.production-storyboard-review { display: grid; gap: 14px; }
++.production-storyboard-card { min-width: 0; display: grid; gap: 10px; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
++.production-storyboard-card header { display: flex; justify-content: space-between; gap: 10px; color: var(--text-2); font-size: 12px; font-weight: 800; }
++.production-storyboard-card header span { color: var(--accent-strong); }
++.production-storyboard-card dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 14px; margin: 0; }
++.production-storyboard-card dl > div { min-width: 0; }
++.production-storyboard-card dt { color: var(--text-3); font-size: 10px; font-weight: 800; }
++.production-storyboard-card dd { margin: 3px 0 0; overflow-wrap: anywhere; color: var(--text-2); font-size: 12px; line-height: 1.45; }
++.production-confirmation-record { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 12px 0; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-1); }
++.production-confirmation-record > div { min-width: 0; }
++.production-confirmation-record dt { color: var(--text-3); font-size: 10px; font-weight: 800; }
++.production-confirmation-record dd { margin: 3px 0 0; overflow-wrap: anywhere; color: var(--text-2); font: 11px/1.4 var(--font-mono); }
++.studio-stage-nav button { position: relative; }
++.studio-stage-nav button small { display: block; margin-top: 1px; font-size: 9px; font-weight: 800; line-height: 1; }
++.studio-stage-nav button:disabled { cursor: not-allowed; opacity: 0.48; }
++
+ /* Mobile toggles default hidden */
+ .mobile-only {
+   display: none;
+@@ -5314,19 +5333,40 @@ details.fold .fold-body {
+     display: grid;
+   }
+   .studio-workbench {
++    width: 100%;
++    max-width: 100%;
++    min-width: 0;
++    min-height: 100vh;
++    height: auto;
+     grid-template-columns: minmax(0, 1fr);
+-    grid-template-rows: auto auto auto;
+-    overflow-y: auto;
++    grid-template-rows: minmax(0, 1fr);
++    overflow: visible;
+   }
+   .studio-assistant,
+   .studio-current {
+-    border: 0;
+-    overflow: visible;
++    display: none;
++  }
++  .studio-workbench,
++  .studio-main,
++  .studio-canvas,
++  .production-canvas,
++  .production-stage-review {
++    width: 100%;
++    max-width: 100%;
++    min-width: 0;
+   }
+   .studio-main {
+-    min-height: 720px;
++    min-height: 0;
++    overflow: visible;
+     grid-template-rows: auto minmax(0, 1fr);
+   }
++  .studio-canvas {
++    overflow: visible;
++    padding: 16px;
++  }
++  .production-canvas {
++    min-height: calc(100vh - var(--topbar-h) - 32px);
++  }
+   .studio-topbar {
+     flex-wrap: wrap;
+     height: auto;
+@@ -5339,6 +5379,9 @@ details.fold .fold-body {
+     overflow-x: auto;
+     justify-content: flex-start;
+   }
++  .studio-stage-nav button {
++    flex: 0 0 auto;
++  }
+ }
+ @keyframes fade-in {
+   from {
+@@ -5369,6 +5412,43 @@ details.fold .fold-body {
+   .studio-overview-grid {
+     grid-template-columns: repeat(2, minmax(0, 1fr));
+   }
++  .production-canvas {
++    min-height: 0;
++    gap: 10px;
++    padding: 10px;
++  }
++  .production-canvas-track {
++    grid-template-columns: minmax(0, 1fr);
++  }
++  .production-script-review textarea {
++    min-height: 240px;
++  }
++  .production-node,
++  .production-next-skeleton {
++    min-height: 112px;
++  }
++  .production-node-main {
++    min-height: 72px;
++    gap: 4px;
++    padding: 10px;
++  }
++  .production-node-main small {
++    -webkit-line-clamp: 2;
++  }
++  .production-review-actions {
++    flex-direction: column;
++    align-items: stretch;
++  }
++  .production-review-actions .btn {
++    width: 100%;
++    flex: 0 0 auto;
++    min-height: 40px;
++    white-space: normal;
++  }
++  .production-storyboard-card dl,
++  .production-confirmation-record {
++    grid-template-columns: minmax(0, 1fr);
++  }
+   .asset-canvas {
+     min-height: 340px;
+     padding: 20px;
+@@ -5387,9 +5467,6 @@ details.fold .fold-body {
+   .node-asset-actions {
+     grid-template-columns: minmax(0, 1fr);
+   }
+-  .asset-proof-strip {
+-    grid-template-columns: minmax(0, 1fr);
+-  }
+   .script-proof-card pre {
+     max-height: 220px;
+   }
+diff --git a/.superpowers/sdd/task-7-before/app/page.model-config-ui.test.cjs b/app/page.model-config-ui.test.cjs
+index db6254a..e30dacc 100644
+--- a/.superpowers/sdd/task-7-before/app/page.model-config-ui.test.cjs
++++ b/app/page.model-config-ui.test.cjs
+@@ -4,6 +4,8 @@ const path = require('node:path');
+ const test = require('node:test');
+ 
+ const source = fs.readFileSync(path.join(__dirname, 'page.tsx'), 'utf8');
++const canvasPath = path.join(__dirname, '..', 'components', 'ProductionCanvas.tsx');
++const canvasSource = fs.existsSync(canvasPath) ? fs.readFileSync(canvasPath, 'utf8') : '';
+ const stageGenerationSource = fs.readFileSync(path.join(__dirname, '..', 'lib', 'stageGeneration.ts'), 'utf8');
+ const runtimeSource = fs.readFileSync(path.join(__dirname, '..', 'components', 'runtime.tsx'), 'utf8');
+ const styleSource = fs.readFileSync(path.join(__dirname, 'globals.css'), 'utf8');
+@@ -31,8 +33,10 @@ test('model settings show readable layer candidates after loading provider model
+ test('script output is promoted to a readable asset surface after generation', () => {
+   assert.match(source, /function revealScriptOutput\(\)/);
+   assert.match(source, /focusStudioStage\(stage\)/);
+-  assert.match(source, /className="studio-inspector-panel script-review-panel"/);
+-  assert.match(source, /className="script-output"/);
++  assert.match(source, /className="production-script-review"/);
++  assert.match(source, /id="production-script-body"/);
++  assert.match(source, /function saveScriptDraft\(\)/);
++  assert.match(source, /markStageDraft\(flow, \{ stage: 'script'/);
+ });
+ 
+ test('script reveal links the selected asset, patch, and inspector content', () => {
+@@ -46,7 +50,8 @@ test('script reveal links the selected asset, patch, and inspector content', ()
+ test('asset selection updates the main file surface without opening inspector', () => {
+   assert.match(source, /const selectedAssetRawBody = selectedAssetPatch\?\.after \|\| selectedFile\?\.content/);
+   assert.match(source, /const selectedAssetBody =/);
+-  assert.match(source, /<pre className="script-output">\{selectedAssetBody\}<\/pre>/);
++  assert.match(source, /reviewContent=\{<>/);
++  assert.match(canvasSource, /className="production-stage-review"/);
+   assert.match(source, /当前节点检查器/);
+   const selectAssetBody = source.match(/function selectAsset\(id: string\) \{([\s\S]*?)\n  \}/)?.[1] || '';
+   assert.ok(selectAssetBody.length > 0);
+@@ -227,7 +232,8 @@ test('all visible production confirmation and regeneration controls use stage tr
+   assert.match(source, /function regenerateProductionStage\(node: StudioCanvasNode\)/);
+   assert.match(source, /const revision = flow\.stages\[stage\]\.status === 'confirmed'/);
+   assert.match(source, /requestStageDraft\(stage, workspace, undefined, node\.action, messages\.slice\(-10\), revision\)/);
+-  assert.match(source, /selectCanvasNode\(node\);\s+regenerateProductionStage\(node\);/);
++  assert.match(source, /onRegenerate=\{\(node\) => \{/);
++  assert.match(source, /if \(source\) regenerateProductionStage\(source\);/);
+ });
+ 
+ test('failed character and scene stages retry only missing image jobs with a new generation job', () => {
+@@ -288,7 +294,7 @@ test('video generation status keeps polling until the provider reaches a termina
+   assert.match(source, /scheduleVideoPoll\(nextVideoId, 1\)/);
+ });
+ 
+-test('output workbench adopts an OiiOii-like practical production layout', () => {
++test('output workbench adopts a progressive practical production layout', () => {
+   assert.match(source, /className="studio-workbench"/);
+   assert.match(source, /className="studio-assistant"/);
+   assert.match(source, /制作助理/);
+@@ -296,25 +302,23 @@ test('output workbench adopts an OiiOii-like practical production layout', () =>
+   for (const stage of ['总览', '剧本', '角色', '场景', '分镜', '视频']) {
+     assert.match(source, new RegExp(stage));
+   }
+-  assert.match(source, /className="asset-canvas"/);
+-  assert.match(source, /className=\{`canvas-node/);
++  assert.match(source, /<ProductionCanvas/);
++  assert.match(source, /visibleCanvasNodes/);
+   assert.match(source, /当前节点检查器/);
+ });
+ 
+-test('mission canvas is sized as a primary production surface', () => {
++test('production canvas is sized as a primary production surface', () => {
+   assert.match(styleSource, /grid-template-columns:\s*290px minmax\(700px, 1fr\) 310px/);
+-  assert.match(styleSource, /min-height:\s*clamp\(420px, 46vh, 540px\)/);
+-  assert.match(styleSource, /\.canvas-path\s*\{[\s\S]*?min-height:\s*300px/);
+-  assert.match(styleSource, /\.canvas-node\s*\{[\s\S]*?width:\s*244px/);
+-  assert.match(styleSource, /\.canvas-link\s*\{[\s\S]*?width:\s*92px/);
+-});
+-
+-test('mission map nodes carry dependency semantics instead of decorative links', () => {
+-  assert.match(source, /Mission Map/);
+-  assert.match(source, /资产依赖图/);
+-  assert.match(source, /function canvasEdgeLabel/);
+-  assert.match(source, /锁定目标后写剧本/);
+-  assert.match(source, /从脚本抽角色/);
++  assert.match(styleSource, /\.production-canvas\s*\{[\s\S]*?min-height:\s*calc\(100vh - var\(--topbar-h\) - 48px\)/);
++  assert.match(styleSource, /\.production-canvas-track\s*\{[\s\S]*?minmax\(190px, 1fr\)/);
++  assert.match(styleSource, /\.production-node,\s*\.production-next-skeleton\s*\{[\s\S]*?min-height:\s*156px/);
++});
++
++test('production nodes carry stage state instead of decorative links', () => {
++  assert.match(source, /const productionFlow = productionFlowFromWorkspace\(workspace\)/);
++  assert.match(source, /visibleProductionStages\(productionFlow\)\.filter/);
++  assert.match(source, /status: record\.status/);
++  assert.match(canvasSource, /production-node-actions/);
+   assert.match(source, /下游影响/);
+   assert.match(source, /nodeStatusReason/);
+   assert.match(source, /patchTouchesNode/);
+@@ -334,16 +338,14 @@ test('node-level revision is scoped to the selected production asset', () => {
+   assert.match(source, /当前节点 patch/);
+ });
+ 
+-test('main board exposes the complete pending patch package for review', () => {
+-  assert.match(source, /aria-label="制作包待审"/);
+-  assert.match(source, /className="package-review-list"/);
+-  assert.match(source, /pendingPatches\.map\(\(patch\) => \(/);
+-  assert.match(source, /patchReviewStageCounts/);
+-  assert.match(source, /function patchReviewStage/);
+-  assert.match(source, /function patchRiskLabel/);
+-  assert.match(source, /setSelectedPatchId\(patch\.id\)/);
+-  assert.match(source, /approvePatchIds\(allPendingPatchIds\)/);
+-  assert.match(source, /rejectPatchIds\(\[patch\.id\]\)/);
++test('pending patches remain in the right-side inspector', () => {
++  assert.doesNotMatch(source, /aria-label="制作包待审"/);
++  assert.match(source, /className="studio-current"/);
++  assert.match(source, /node-patch-panel/);
++  assert.match(source, /<ApprovalQueue/);
++  assert.match(source, /setSelectedPatchId/);
++  assert.match(source, /approvePatchIds/);
++  assert.match(source, /rejectPatchIds/);
+ });
+ 
+ test('dependency state marks stale downstream nodes from upstream changes', () => {
+@@ -355,7 +357,7 @@ test('dependency state marks stale downstream nodes from upstream changes', () =
+   assert.match(source, /Math\.max\(scriptRev, sceneRev, storyboardRev\) > videoRev/);
+   assert.match(source, /依赖已过期/);
+   assert.match(source, /下游需重审/);
+-  assert.match(source, /className=\{`canvas-node \$\{node\.status\} \$\{node\.dependencyState\}/);
++  assert.match(source, /status: record\.status/);
+ });
+ 
+ test('asset library saves only stable nodes through approval patches', () => {
+@@ -371,32 +373,23 @@ test('asset library saves only stable nodes through approval patches', () => {
+   assert.match(source, /合并后才会写入 asset_library\.json/);
+ });
+ 
+-test('stage navigation drives a canvas camera instead of plain tab switching', () => {
+-  assert.match(source, /type StageCamera/);
+-  assert.match(source, /const stageCameras: Record<StudioStageId, StageCamera>/);
++test('stage navigation exposes only permitted production stages', () => {
+   assert.match(source, /function focusStudioStage\(stage: StudioStageId\)/);
+-  assert.match(source, /stageCameraStyle\(activeStageCamera\)/);
+-  assert.match(source, /aria-label=\{`聚焦\$\{stage\.label\}阶段`\}/);
+-  assert.match(source, /className="canvas-viewport"/);
+-  assert.match(source, /className="canvas-camera-hud"/);
+-  assert.match(styleSource, /\.canvas-viewport\s*\{/);
+-  assert.match(styleSource, /transform:\s*translate\(var\(--camera-x\), var\(--camera-y\)\) scale\(var\(--camera-zoom\)\)/);
+-  assert.match(styleSource, /transform-origin:\s*top left/);
+-});
+-
+-test('mission map nodes expose asset-object actions directly on the canvas', () => {
+-  assert.match(source, /className="node-asset-actions"/);
+-  assert.match(source, /aria-label=\{`\$\{node\.label\}资产操作`\}/);
+-  assert.match(source, /预览/);
+-  assert.match(source, /重新生成/);
+-  assert.match(source, /替换资产/);
+-  assert.match(source, /入库/);
+-  assert.match(source, /nodeCanEnterLibrary/);
+-  assert.match(source, /proposeAssetLibraryPatch\(node\)/);
+-  assert.match(styleSource, /\.node-asset-actions\s*\{/);
++  assert.match(source, /const stageOpen = stage\.id === 'overview' \|\| canOpenProductionStage\(productionFlow, stage\.id\)/);
++  assert.match(source, /aria-disabled=\{!stageOpen\}/);
++  assert.match(styleSource, /@media \(max-width: 1024px\)[\s\S]*?\.studio-stage-nav \{/);
++  assert.match(styleSource, /overflow-x:\s*auto/);
++});
++
++test('production canvas exposes accessible stage actions', () => {
++  assert.match(canvasSource, /aria-label=\{`重新生成\$\{node\.title\}`\}/);
++  assert.match(canvasSource, /aria-label=\{`替换\$\{node\.title\}`\}/);
++  assert.match(canvasSource, /onRegenerate\(node\)/);
++  assert.match(canvasSource, /onReplace\(node\)/);
++  assert.match(styleSource, /\.production-node-actions\s*\{/);
+ });
+ 
+-test('selected node shows a production decision card with continue and revise paths', () => {
++test('selected node shows a production decision card with review navigation and revise paths', () => {
+   assert.match(source, /type ProductionDecision/);
+   assert.match(source, /function decisionCardForNode\(node: StudioCanvasNode\)/);
+   assert.match(source, /const selectedDecision = selectedNode \? decisionCardForNode\(selectedNode\) : null/);
+@@ -404,24 +397,76 @@ test('selected node shows a production decision card with continue and revise pa
+   assert.match(source, /Production Decision/);
+   assert.match(source, /选择制作路径/);
+   assert.match(source, /decision\.options\.map/);
+-  assert.match(source, /确认并继续/);
++  assert.match(source, /返回当前阶段审查/);
+   assert.match(source, /我要修改/);
+   assert.match(source, /setNodeRevisionText\(decision\.revisionPrompt\)/);
++  assert.match(source, /onClick=\{\(\) => focusStudioStage\(selectedProductionStage\)\}/);
++  assert.doesNotMatch(source, /function continueFromDecision\(/);
++  assert.doesNotMatch(source, /确认并继续/);
+   assert.match(styleSource, /\.production-decision-card\s*\{/);
+ });
+ 
+-test('overview exposes generated script and character assets instead of only node summaries', () => {
+-  assert.match(source, /function characterAssetsFromPrompts\(prompts: AssetPrompts\)/);
+-  assert.match(source, /const visibleCharacterAssets =/);
+-  assert.match(source, /className="asset-proof-strip"/);
+-  assert.match(source, /已生成脚本/);
+-  assert.match(source, /className="script-proof-card"/);
+-  assert.match(source, /查看全文/);
+-  assert.match(source, /className="character-proof-card"/);
+-  assert.match(source, /确认角色/);
+-  assert.match(styleSource, /\.asset-proof-strip\s*\{/);
+-  assert.match(styleSource, /\.script-proof-card\s*\{/);
+-  assert.match(styleSource, /\.character-proof-card\s*\{/);
++test('production navigation and canvas render only unlocked stages', () => {
++  assert.match(source, /canOpenProductionStage\(productionFlow, stage\.id\)/);
++  assert.match(source, /disabled=\{!stageOpen\}/);
++  assert.match(source, /aria-disabled=\{!stageOpen\}/);
++  assert.match(source, /未解锁/);
++  assert.match(source, /visibleProductionStages\(productionFlow\)/);
++  assert.match(source, /visibleCanvasNodes/);
++});
++
++test('workspace initialization focuses the production flow current stage', () => {
++  assert.match(source, /function focusInitialProductionStage\(snapshot: WorkspaceSnapshot\)/);
++  assert.match(source, /const stage = productionFlowFromWorkspace\(snapshot\)\.currentStage/);
++  assert.match(source, /setActiveTab\(stage\)/);
++  assert.match(source, /setSelectedNodeId\(`node_\$\{stage\}`\)/);
++  assert.match(source, /focusInitialProductionStage\(restoredDemo\)/);
++  assert.match(source, /focusInitialProductionStage\(demoWorkspace\)/);
++  assert.match(source, /focusInitialProductionStage\(loaded\)/);
++  assert.doesNotMatch(source, /setActiveTab\('overview'\)/);
++});
++
++test('a generating stage is represented by one skeleton instead of two canvas cards', () => {
++  assert.match(source, /const nextGeneratingStage = productionFlow\.stages\[productionFlow\.currentStage\]\.status === 'generating'/);
++  assert.match(source, /visibleProductionStages\(productionFlow\)\.filter\(\(stage\) => stage !== nextGeneratingStage\)/);
++  assert.match(canvasSource, /production-next-skeleton/);
++});
++
++test('review content uses a light work surface and mobile width boundaries', () => {
++  assert.match(styleSource, /\.production-stage-review\s*\{[\s\S]*?background:\s*#f7f9f7/);
++  assert.match(styleSource, /\.production-review-workspace\s*\{[\s\S]*?color:\s*var\(--text\)/);
++  assert.match(styleSource, /@media \(max-width: 1024px\)[\s\S]*?\.studio-workbench,\s*\.studio-main,\s*\.studio-canvas,\s*\.production-canvas,\s*\.production-stage-review/);
++  assert.match(styleSource, /@media \(max-width: 720px\)[\s\S]*?\.production-script-review textarea\s*\{[\s\S]*?min-height:\s*240px/);
++});
++
++test('production review headings and inspector status come from the production flow record', () => {
++  assert.match(source, /const productionReviewHeading: Record<ProductionStageId, string> = \{/);
++  for (const label of ['脚本审查', '角色审查', '场景审查', '分镜审查', '视频任务审查']) {
++    assert.match(source, new RegExp(`'${label}'`));
++  }
++  assert.match(source, /<h1>\{activeTab === 'overview' \? previewInfo\.hook : productionReviewHeading\[activeProductionStage\]\}<\/h1>/);
++  assert.doesNotMatch(source, /<h1>\{activeTab === 'overview' \? previewInfo\.hook : selectedAssetTitle\}<\/h1>/);
++  assert.match(source, /function productionStageStatusText\(status: ProductionStageStatus\)/);
++  assert.match(source, /<small>\{selectedNode\.owner\} · \{productionStageStatusText\(selectedProductionRecord\.status\)\}<\/small>/);
++});
++
++test('canvas owns stage review content and excludes the duplicate proof strip', () => {
++  assert.match(source, /<ProductionCanvas/);
++  assert.doesNotMatch(source, /className="asset-proof-strip"/);
++  assert.match(canvasSource, /production-stage-review/);
++  assert.match(canvasSource, /production-next-skeleton/);
++});
++
++test('each production stage retains exactly one primary confirmation action', () => {
++  for (const label of [
++    '确认脚本并生成角色',
++    '确认角色并生成场景',
++    '确认场景并生成分镜',
++    '确认分镜并生成视频任务',
++    '确认视频任务并开始生成'
++  ]) {
++    assert.equal(source.split(label).length - 1, 1, `${label} should occur exactly once`);
++  }
+ });
+ 
+ test('character stage renders confirmable role cards from proposed characters JSON', () => {
+@@ -433,7 +478,8 @@ test('character stage renders confirmable role cards from proposed characters JS
+   assert.match(source, /visibleCharacterAssets\.map/);
+   assert.match(source, /className="character-asset-card"/);
+   assert.match(source, /角色一致性/);
+-  assert.match(source, /确认角色，继续场景/);
++  assert.match(source, /确认角色并生成场景/);
++  assert.doesNotMatch(source, /确认并继续场景/);
+   assert.match(source, /setNodeRevisionText\(`我要修改角色/);
+   assert.match(styleSource, /\.character-asset-grid\s*\{/);
+   assert.match(styleSource, /\.character-asset-card\s*\{/);
+

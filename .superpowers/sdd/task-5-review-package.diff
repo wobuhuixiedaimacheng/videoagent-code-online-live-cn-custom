@@ -1,0 +1,621 @@
+diff --git a/.superpowers/sdd/task-5-before/app/page.tsx b/app/page.tsx
+index 3af4ea3..2000b41 100644
+--- a/.superpowers/sdd/task-5-before/app/page.tsx
++++ b/app/page.tsx
+@@ -40,9 +40,22 @@ import {
+ } from '../lib/workspaceDrafts';
+ import {
+   productionFlowFromWorkspace,
++  beginStageGeneration,
++  completeStageGeneration,
++  failStageGeneration,
++  markStageDraft,
++  nextProductionStage,
+   PRODUCTION_FLOW_PATH,
+   writeProductionFlow
+ } from '../lib/productionFlow';
++import {
++  filterStagePatches,
++  isProductionStageFile,
++  sourceVersionsForStage,
++  stageConfig,
++  stageGenerationInstruction
++} from '../lib/stageGeneration';
++import { validateStageAssets } from '../lib/productionAssets';
+ import {
+   modelReadMessage,
+   optionsForLayer,
+@@ -584,6 +597,11 @@ function studioStageName(stage: StudioStageId) {
+   return studioStages.find((item) => item.id === stage)?.label || '节点';
+ }
+ 
++function productionStageForFile(filePath: string): ProductionStageId | null {
++  const stages: ProductionStageId[] = ['script', 'character', 'scene', 'storyboard', 'video'];
++  return stages.find((stage) => stageConfig(stage).outputFiles.includes(filePath)) || null;
++}
++
+ function stageCameraStyle(camera: StageCamera): CSSProperties {
+   return {
+     '--camera-x': `${camera.x}px`,
+@@ -1394,6 +1412,9 @@ export default function Page() {
+   const [roleDesignPreviewKinds, setRoleDesignPreviewKinds] = useState<Record<string, CharacterDesignOutputKind>>({});
+   const [roleDesignNotice, setRoleDesignNotice] = useState('');
+   const videoPollTimerRef = useRef<number | null>(null);
++  const stageGenerationJobRef = useRef(new Map<ProductionStageId, string>());
++  const activeStageGenerationCountRef = useRef(0);
++  const confirmationInFlightRef = useRef(new Set<string>());
+   const demoWorkspaceId = typeof window === 'undefined' ? null : demoIdFromQuery();
+ 
+   useEffect(() => {
+@@ -1516,7 +1537,8 @@ export default function Page() {
+   // 托管模式：运行完成后自动合并低风险 patch（高风险仍需人工确认）
+   useEffect(() => {
+     if (!autopilot || !workspace || !lastRun) return;
+-    const lowRisk = autopilotPatchesForRun(workspace, lastRun.patchOperations);
++    const lowRisk = autopilotPatchesForRun(workspace, lastRun.patchOperations)
++      .filter((patch) => !isProductionStageFile(patch.filePath));
+     if (!lowRisk.length) return;
+     const status = overallStatus(lastRun);
+     setWorkspace((current) => current
+@@ -1540,15 +1562,15 @@ export default function Page() {
+ 
+   const brief = useMemo(() => missionBriefFromWorkspace(proposedWorkspace), [proposedWorkspace]);
+   const hasWorkspaceAssets = Boolean(
+-    workspace?.files.some((file) => !isInternalWorkspaceFile(file.path) && file.path !== '.aigc/MEMORY.md')
++    proposedWorkspace?.files.some((file) => !isInternalWorkspaceFile(file.path) && file.path !== '.aigc/MEMORY.md')
+   );
+   const assets = useMemo(
+-    () => (lastRun?.assets.length ? lastRun.assets : hasWorkspaceAssets ? missionAssetsFromWorkspace(workspace) : []),
+-    [lastRun, workspace, hasWorkspaceAssets]
++    () => (hasWorkspaceAssets ? missionAssetsFromWorkspace(proposedWorkspace) : []),
++    [proposedWorkspace, hasWorkspaceAssets]
+   );
+   const scenes = useMemo(
+-    () => (lastRun?.preview.scenes.length ? lastRun.preview.scenes : hasWorkspaceAssets ? sceneAssets(workspace) : []),
+-    [lastRun, workspace, hasWorkspaceAssets]
++    () => (hasWorkspaceAssets ? sceneAssets(proposedWorkspace) : []),
++    [proposedWorkspace, hasWorkspaceAssets]
+   );
+   const publishCopy = useMemo(() => parseJsonFile<PublishCopy>(proposedWorkspace, 'publish_copy.json', {}), [proposedWorkspace]);
+   const assetPrompts = useMemo(() => parseJsonFile<AssetPrompts>(proposedWorkspace, 'asset_prompts.json', {}), [proposedWorkspace]);
+@@ -1575,7 +1597,7 @@ export default function Page() {
+         .filter((stage) => stage.count > 0),
+     [pendingPatches]
+   );
+-  const complianceStatus = lastRun ? overallStatus(lastRun) : hasWorkspaceAssets ? workspace?.complianceStatus || 'warning' : 'pass';
++  const complianceStatus = hasWorkspaceAssets ? workspace?.complianceStatus || 'warning' : 'pass';
+ 
+   const videoCards = scenes.slice(0, 5).map((scene, index) => ({
+     id: scene.id,
+@@ -1586,127 +1608,193 @@ export default function Page() {
+     duration: scene.durationSeconds || Math.ceil(videoDuration(videoSpec))
+   }));
+ 
+-  async function runAgent(
+-    text = instruction,
+-    selectedWorkflow = workflow,
+-    options: { nodeRevisionNode?: StudioCanvasNode } = {}
++  async function requestStageDraft(
++    stage: ProductionStageId,
++    baseWorkspace: WorkspaceSnapshot,
++    generationJobId = uid(`${stage}-job`),
++    requestText = '',
++    history = messages.slice(-10),
++    revision = false
+   ) {
+-    if (!workspace || !text.trim()) return;
++    const sourceVersions = sourceVersionsForStage(baseWorkspace, stage);
++    let generationWorkspace: WorkspaceSnapshot;
+ 
+-    const displayText = text.trim();
+-    const nextWorkflow = inferWorkflowFromCommand(displayText, selectedWorkflow);
+-    const nodeRevisionNode = options.nodeRevisionNode;
+-    const enrichedInstruction = nodeRevisionNode
+-      ? `${displayText}\n\n${buildSpecInstruction(videoSpec)}\n\n产出要求：这是节点级修改，只提交 Mission Map 当前节点相关 patch，目标文件优先为 ${nodeRevisionNode.filePath}；不要顺手重写 script.md、brief.json 或其它无关资产。\n\n前台交互要求：用户只面对创意总监 Agent。后台专业 Agent 可以工作，但只在协作日志里简要显示。`
+-      : `${displayText}\n\n${buildSpecInstruction(videoSpec)}\n\n产出要求：本轮必须提交 script.md，除非用户明确只问问题。不要只回复“已生成脚本”的摘要；脚本正文必须进入 script.md patch。\n\n前台交互要求：用户只面对创意总监 Agent。后台专业 Agent 可以工作，但只在协作日志里简要显示。`;
+-    const requestWorkspace: WorkspaceSnapshot = {
+-      ...workspace,
+-      title: brief.isBlank ? displayText.slice(0, 32) || workspace.title : workspace.title,
+-      activeWorkflow: nextWorkflow
+-    };
+-    const userMessage: AgentMessage = { id: uid('msg'), role: 'user', content: displayText, createdAt: now() };
+-    const history = [...messages, userMessage].slice(-10);
++    try {
++      const flow = productionFlowFromWorkspace(baseWorkspace);
++      const nextFlow = beginStageGeneration(flow, stage, generationJobId, sourceVersions);
++      generationWorkspace = nextFlow === flow ? baseWorkspace : writeProductionFlow(baseWorkspace, nextFlow);
++    } catch (err) {
++      const message = err instanceof Error ? err.message : `${studioStageName(stage)}生成失败`;
++      setError(message);
++      setMessages((prev) => [...prev, { id: uid('msg'), role: 'system', content: `请求失败：${message}`, createdAt: now() }]);
++      return;
++    }
+ 
+-    setWorkspace(requestWorkspace);
+-    setWorkflow(nextWorkflow);
++    stageGenerationJobRef.current.set(stage, generationJobId);
++    setWorkspace(generationWorkspace);
++    activeStageGenerationCountRef.current += 1;
+     setLoading(true);
+     setError('');
+     setLastRun(null);
+     setVideoRender({ status: 'idle' });
+-    setMessages((prev) => [...prev, userMessage]);
+-    setInstruction('');
+ 
+     try {
+-      const res = await fetch('/api/agent/run', {
++      const response = await fetch('/api/agent/run', {
+         method: 'POST',
+         headers: { 'content-type': 'application/json' },
+-        body: JSON.stringify({ instruction: enrichedInstruction, workspace: requestWorkspace, history, workflow: nextWorkflow })
++        body: JSON.stringify({
++          instruction: [requestText, stageGenerationInstruction(stage, buildSpecInstruction(videoSpec))].filter(Boolean).join('\n\n'),
++          workspace: baseWorkspace,
++          history,
++          workflow: stageConfig(stage).workflow,
++          productionStage: stage,
++          generationJobId,
++          sourceVersions
++        })
+       });
+-      const data = await res.json();
+-      if (!res.ok) throw new Error(data.error || 'Agent request failed');
+-      const rawResult = data as AgentRunResponse;
+-      const scopedPatches = nodeRevisionNode
+-        ? rawResult.patchOperations.filter((patch) => patchTouchesNode(patch, nodeRevisionNode))
+-        : rawResult.patchOperations;
+-      if (nodeRevisionNode && scopedPatches.length === 0) {
+-        throw new Error(`节点修改没有返回 ${nodeRevisionNode.filePath} patch，请重试或调整修改要求。`);
+-      }
+-      const result: AgentRunResponse = nodeRevisionNode
+-        ? { ...rawResult, patchOperations: scopedPatches }
+-        : rawResult;
+-      setLastRun(result);
+-      setWorkspace((current) => current ? appendPendingPatches(current, result.patchOperations) : current);
++      const result = await response.json() as AgentRunResponse & { error?: string };
++      if (!response.ok) throw new Error(result.error || `${studioStageName(stage)}生成失败`);
++      const scopedPatches = filterStagePatches(stage, result.patchOperations);
++      if (stageGenerationJobRef.current.get(stage) !== generationJobId) return;
++      setWorkspace((current) => {
++        if (!current) return current;
++        if (stageGenerationJobRef.current.get(stage) !== generationJobId) return current;
++        const flow = productionFlowFromWorkspace(current);
++        const completion = completeStageGeneration(flow, stage, generationJobId, sourceVersions);
++        if (!completion.accepted) return current;
++        const nextFlow = revision
++          ? markStageDraft(flow, { stage, generationJobId, sourceVersions })
++          : completion.flow;
++        return writeProductionFlow(appendPendingPatches(current, scopedPatches), nextFlow);
++      });
++      setLastRun({ ...result, patchOperations: scopedPatches });
+       setMessages((prev) => [...prev, { id: uid('msg'), role: 'assistant', content: result.assistantMessage, createdAt: now() }]);
+-      if (nodeRevisionNode) {
+-        const nodePatch = result.patchOperations.find((patch) => patchTouchesNode(patch, nodeRevisionNode)) || result.patchOperations[0];
+-        const nodeAsset = result.assets.find((asset) => asset.filePath === nodeRevisionNode.filePath);
+-        setActiveTab(nodeRevisionNode.stage);
+-        setSelectedNodeId(nodeRevisionNode.id);
+-        setNodeRevisionText('');
+-        if (nodeAsset) setSelectedAssetId(nodeAsset.id);
+-        else if (nodeRevisionNode.assetId) setSelectedAssetId(nodeRevisionNode.assetId);
+-        if (nodeRevisionNode.sceneId) setSelectedSceneId(nodeRevisionNode.sceneId);
+-        if (nodePatch) setSelectedPatchId(nodePatch.id);
+-      } else {
+-        const nextScriptPatch = result.patchOperations.find((patch) => patch.filePath === 'script.md');
+-        const nextScriptAsset = result.assets.find((asset) => asset.filePath === 'script.md' || asset.type === 'script');
+-        setActiveTab(nextScriptPatch || nextScriptAsset ? 'script' : 'overview');
+-        setSelectedNodeId(nextScriptPatch || nextScriptAsset ? 'node_script' : 'node_mission');
+-        setNodeRevisionText('');
+-        if (nextScriptAsset) setSelectedAssetId(nextScriptAsset.id);
+-        if (result.preview.scenes[0]) setSelectedSceneId(result.preview.scenes[0].id);
+-        if (nextScriptPatch || result.patchOperations[0]) setSelectedPatchId((nextScriptPatch || result.patchOperations[0]).id);
+-      }
++      focusStudioStage(stage);
++      const firstPatch = scopedPatches[0];
++      if (firstPatch) setSelectedPatchId(firstPatch.id);
+     } catch (err) {
+-      const message = err instanceof Error ? err.message : 'Unknown error';
++      if (stageGenerationJobRef.current.get(stage) !== generationJobId) return;
++      const message = err instanceof Error ? err.message : `${studioStageName(stage)}生成失败`;
++      setWorkspace((current) => {
++        if (!current || stageGenerationJobRef.current.get(stage) !== generationJobId) return current;
++        return writeProductionFlow(
++          current,
++          failStageGeneration(productionFlowFromWorkspace(current), stage, generationJobId, message)
++        );
++      });
+       setError(message);
+       setMessages((prev) => [...prev, { id: uid('msg'), role: 'system', content: `请求失败：${message}`, createdAt: now() }]);
+     } finally {
+-      setLoading(false);
++      activeStageGenerationCountRef.current = Math.max(0, activeStageGenerationCountRef.current - 1);
++      setLoading(activeStageGenerationCountRef.current > 0);
+     }
+   }
+ 
++  async function runAgent(text = instruction, selectedWorkflow = workflow) {
++    if (!workspace || !text.trim()) return;
++
++    const displayText = text.trim();
++    const nextWorkflow = inferWorkflowFromCommand(displayText, selectedWorkflow);
++    const requestWorkspace: WorkspaceSnapshot = {
++      ...workspace,
++      title: brief.isBlank ? displayText.slice(0, 32) || workspace.title : workspace.title,
++      activeWorkflow: nextWorkflow
++    };
++    const userMessage: AgentMessage = { id: uid('msg'), role: 'user', content: displayText, createdAt: now() };
++    const history = [...messages, userMessage].slice(-10);
++
++    setWorkflow(nextWorkflow);
++    setMessages((prev) => [...prev, userMessage]);
++    setInstruction('');
++    await requestStageDraft('script', requestWorkspace, undefined, displayText, history);
++  }
++
+   function approvePatchIds(patchIds: string[]) {
+     if (!workspace) return;
+     const patches = pendingPatches.filter((patch) => patchIds.includes(patch.id));
+     if (!patches.length) return;
+-    const status = lastRun ? overallStatus(lastRun) : workspace.complianceStatus;
++    const productionStages = new Set(patches.map((patch) => productionStageForFile(patch.filePath)).filter(Boolean));
++    if (productionStages.size > 0) {
++      const productionStage = [...productionStages][0];
++      const mixedWithNonProduction = patches.some((patch) => !productionStageForFile(patch.filePath));
++      if (productionStages.size !== 1 || mixedWithNonProduction || !productionStage) {
++        const message = '生产阶段 patch 不能与其它 patch 一起合并，请按阶段确认。';
++        setError(message);
++        setMessages((prev) => [...prev, { id: uid('msg'), role: 'system', content: message, createdAt: now() }]);
++        return;
++      }
++      void confirmProductionStage(productionStage);
++      return;
++    }
+     setWorkspace((current) => current
+       ? consumePendingPatches(
+-        { ...current, activeWorkflow: lastRun?.preview.workflow || current.activeWorkflow },
++        current,
+         patches.map((patch) => patch.filePath),
+-        status
++        current.complianceStatus
+       ).workspace
+       : current);
+     setMessages((prev) => [...prev, { id: uid('msg'), role: 'assistant', content: `已合并 ${patches.length} 个 patch。`, createdAt: now() }]);
+   }
+ 
+   function rejectPatchIds(patchIds: string[]) {
+-    const ids = pendingPatches.filter((patch) => patchIds.includes(patch.id)).map((patch) => patch.id);
+-    if (!ids.length) return;
++    const patches = pendingPatches.filter((patch) => patchIds.includes(patch.id));
++    if (!patches.length) return;
++    const productionStages = new Set(patches.map((patch) => productionStageForFile(patch.filePath)).filter(Boolean));
++    if (productionStages.size > 0) {
++      const message = '生产阶段 patch 不能通过通用队列拒绝；请使用“我要修改”或“重新生成”。';
++      setError(message);
++      setMessages((prev) => [...prev, { id: uid('msg'), role: 'system', content: message, createdAt: now() }]);
++      return;
++    }
++    const ids = patches.map((patch) => patch.id);
+     setWorkspace((current) => current
+       ? savePendingPatches(current, readPendingPatches(current).filter((patch) => !ids.includes(patch.id)))
+       : current);
+     setMessages((prev) => [...prev, { id: uid('msg'), role: 'assistant', content: `已拒绝 ${ids.length} 个 patch，文件未变化。`, createdAt: now() }]);
+   }
+ 
+-  function confirmProductionStage(stage: ProductionStageId, outputFiles: string[]) {
+-    setWorkspace((current) => {
+-      if (!current) return current;
+-      const flow = productionFlowFromWorkspace(current);
+-      const record = flow.stages[stage];
+-      if (record.status !== 'ready_for_review' || record.draftVersion === null) return current;
+-      return confirmStageInWorkspace(current, {
++  async function confirmProductionStage(stage: ProductionStageId) {
++    if (!workspace || !proposedWorkspace) return;
++    const flow = productionFlowFromWorkspace(workspace);
++    const record = flow.stages[stage];
++    if (record.status !== 'ready_for_review' || record.draftVersion === null) return;
++
++    const confirmationKey = `${stage}:${record.draftVersion}:${workspace.projectId}`;
++    if (confirmationInFlightRef.current.has(confirmationKey)) return;
++    confirmationInFlightRef.current.add(confirmationKey);
++
++    try {
++      const issues = validateStageAssets(stage, proposedWorkspace);
++      if (issues.length) {
++        setError(issues.join('；'));
++        return;
++      }
++
++      const nextStage = nextProductionStage(stage);
++      const nextJobId = nextStage ? uid(`${nextStage}-job`) : null;
++      const nextSourceVersions = nextStage ? sourceVersionsForStage(proposedWorkspace, nextStage) : {};
++      const transaction = confirmStageInWorkspace(workspace, {
+         stage,
++        outputFiles: stageConfig(stage).outputFiles,
+         expectedDraftVersion: record.draftVersion,
+-        confirmationKey: `confirm:${stage}:${record.draftVersion}`,
++        confirmationKey,
+         confirmedAt: now(),
+         confirmedBy: 'local-user',
+-        nextGenerationJobId: stage === 'video' ? null : `${stage}-next-${record.draftVersion}`,
+-        sourceVersions: record.sourceVersions,
+-        outputFiles
+-      }).workspace;
+-    });
++        nextGenerationJobId: nextJobId,
++        sourceVersions: nextSourceVersions
++      });
++      setWorkspace(transaction.workspace);
++      if (nextStage && nextJobId) {
++        focusStudioStage(nextStage);
++        await requestStageDraft(nextStage, transaction.workspace, nextJobId);
++      }
++    } catch (err) {
++      const message = err instanceof Error ? err.message : `${studioStageName(stage)}确认失败`;
++      setError(message);
++      setMessages((prev) => [...prev, { id: uid('msg'), role: 'system', content: `确认失败：${message}`, createdAt: now() }]);
++    } finally {
++      confirmationInFlightRef.current.delete(confirmationKey);
++    }
+   }
+ 
+   function resetProject(mode = workspace?.mode || 'creator') {
+@@ -1838,7 +1926,7 @@ export default function Page() {
+   if (!workspace) return <main className="loading-screen">正在加载...</main>;
+ 
+   const hasUserConversation = messages.some((message) => message.role === 'user');
+-  const hasOutput = Boolean(lastRun) || hasWorkspaceAssets;
++  const hasOutput = hasWorkspaceAssets;
+   const focusMode = hasUserConversation && !hasOutput;
+   const visibleMessages = (hasUserConversation ? messages : messages.slice(0, 1)).slice(-6);
+   const latestUserMessage = [...messages].reverse().find((message) => message.role === 'user');
+@@ -1924,9 +2012,9 @@ export default function Page() {
+   const storyboard = storyboardScenes(proposedWorkspace);
+   const activeScene = scenes.find((scene) => scene.id === selectedSceneId) || scenes[0];
+   const previewInfo = {
+-    hook: lastRun?.preview.title || publishCopy.titles?.[0] || activeScene?.title || brief.title || '把一句视频目标变成可审查资产',
+-    sub: activeScene?.subtitle || lastRun?.preview.subtitle || brief.goal,
+-    cta: lastRun?.preview.cta || publishCopy.coverText || 'CTA 待生成',
++    hook: publishCopy.titles?.[0] || activeScene?.title || brief.title || '把一句视频目标变成可审查资产',
++    sub: activeScene?.subtitle || brief.goal,
++    cta: publishCopy.coverText || 'CTA 待生成',
+     platform: videoSpec.platform,
+     durationLabel: `${videoDuration(videoSpec)}s`
+   };
+@@ -2590,11 +2678,25 @@ export default function Page() {
+     setNodeRevisionText('');
+   }
+   function submitNodeRevision() {
+-    if (!selectedNode) return;
+-    void runAgent(buildNodeRevisionInstruction(selectedNode, nodeRevisionText), workflow, { nodeRevisionNode: selectedNode });
++    if (!selectedNode || !workspace) return;
++    const stage: ProductionStageId = selectedNode.stage === 'overview' ? 'script' : selectedNode.stage;
++    const revisionText = buildNodeRevisionInstruction(selectedNode, nodeRevisionText);
++    const userMessage: AgentMessage = { id: uid('msg'), role: 'user', content: revisionText, createdAt: now() };
++    setMessages((prev) => [...prev, userMessage]);
++    setNodeRevisionText('');
++    void requestStageDraft(stage, workspace, undefined, revisionText, [...messages, userMessage].slice(-10), true);
+   }
+-  function continueFromDecision(decision: ProductionDecision) {
+-    focusStudioStage(decision.nextStage);
++  function regenerateProductionStage(node: StudioCanvasNode) {
++    if (!workspace) return;
++    const stage: ProductionStageId = node.stage === 'overview' ? 'script' : node.stage;
++    const flow = productionFlowFromWorkspace(workspace);
++    const revision = flow.stages[stage].status === 'confirmed';
++    void requestStageDraft(stage, workspace, undefined, node.action, messages.slice(-10), revision);
++  }
++  function continueFromDecision() {
++    if (!selectedNode) return;
++    const stage: ProductionStageId = selectedNode.stage === 'overview' ? 'script' : selectedNode.stage;
++    void confirmProductionStage(stage);
+   }
+   function renderProductionDecision(decision: ProductionDecision) {
+     return (
+@@ -2620,7 +2722,7 @@ export default function Page() {
+           <button type="button" className="btn sm" onClick={() => setNodeRevisionText(decision.revisionPrompt)}>
+             <IconWand /> 我要修改
+           </button>
+-          <button type="button" className="btn primary sm" onClick={() => continueFromDecision(decision)}>
++          <button type="button" className="btn primary sm" onClick={continueFromDecision}>
+             <IconCheck /> 确认并继续
+           </button>
+         </div>
+@@ -2662,6 +2764,7 @@ export default function Page() {
+     setInspectorDocked(true);
+   }
+   function rewriteShot(id: string, kind: 'visual' | 'camera' | 'action') {
++    if (!workspace) return;
+     setSelectedSceneId(id);
+     const shot = storyboard.find((item) => item.id === id) || scenes.find((item) => item.id === id);
+     const label = shot?.title || id;
+@@ -2670,7 +2773,7 @@ export default function Page() {
+       camera: `只调整分镜「${label}」的运镜方式（当前 ${cameraMoveLabel(videoSpec.cameraMove)}），给更贴合内容的镜头运动，不动其它镜头。`,
+       action: `只重写分镜「${label}」的主体动作和表演节奏，保持画面和其它镜头不变。`
+     };
+-    void runAgent(prompts[kind]);
++    void requestStageDraft('storyboard', workspace, undefined, prompts[kind], messages.slice(-10), true);
+   }
+   function navigate(section: NavSection) {
+     if (section === 'new') {
+@@ -3420,13 +3523,7 @@ export default function Page() {
+                                   type="button"
+                                   onClick={() => {
+                                     selectCanvasNode(node);
+-                                    if (node.stage === 'character' && visibleCharacterAssets[0]) {
+-                                      const character = visibleCharacterAssets[0];
+-                                      const variant = activeCharacterVariantFor(character, 0);
+-                                      void regenerateCharacterDesign(character, variant, 'portrait', 0);
+-                                      return;
+-                                    }
+-                                    setNodeRevisionText(node.action);
++                                    regenerateProductionStage(node);
+                                   }}
+                                   title={`重新生成${node.label}`}
+                                 >
+@@ -3492,7 +3589,7 @@ export default function Page() {
+                             <span>{character.role}</span>
+                             <strong>{character.name}</strong>
+                             <p>{character.description}</p>
+-                            <button type="button" className="btn primary sm" onClick={() => focusStudioStage('scene')}>
++                            <button type="button" className="btn primary sm" onClick={() => void confirmProductionStage('character')}>
+                               <IconCheck /> 确认角色
+                             </button>
+                           </article>
+@@ -3844,8 +3941,7 @@ export default function Page() {
+                                         type="button"
+                                         className="btn sm"
+                                         onClick={() => {
+-                                          confirmProductionStage('character', ['characters.json']);
+-                                          focusStudioStage('scene');
++                                          void confirmProductionStage('character');
+                                         }}
+                                       >
+                                         <IconCheck /> 确认并继续场景
+@@ -3909,11 +4005,14 @@ export default function Page() {
+                         renderState={videoRender}
+                         onRender={() => void submitVideoRender()}
+                         onPoll={() => void pollVideoRender()}
+-                        onPrepare={() =>
+-                          void runAgent(
+-                            '请基于已确认的制作包，重新准备可提交给视频模型的镜头级生成任务、首帧提示、角色一致性提示和渲染参数。不要声称已渲染 MP4。'
+-                          )
+-                        }
++                        onPrepare={() => workspace && void requestStageDraft(
++                          'video',
++                          workspace,
++                          undefined,
++                          '请基于已确认的制作包，重新准备可提交给视频模型的镜头级生成任务、首帧提示、角色一致性提示和渲染参数。不要声称已渲染 MP4。',
++                          messages.slice(-10),
++                          true
++                        )}
+                       />
+                     </div>
+                   )}
+diff --git a/.superpowers/sdd/task-5-before/app/page.model-config-ui.test.cjs b/app/page.model-config-ui.test.cjs
+index 055b234..8a10fdf 100644
+--- a/.superpowers/sdd/task-5-before/app/page.model-config-ui.test.cjs
++++ b/app/page.model-config-ui.test.cjs
+@@ -4,6 +4,7 @@ const path = require('node:path');
+ const test = require('node:test');
+ 
+ const source = fs.readFileSync(path.join(__dirname, 'page.tsx'), 'utf8');
++const stageGenerationSource = fs.readFileSync(path.join(__dirname, '..', 'lib', 'stageGeneration.ts'), 'utf8');
+ const runtimeSource = fs.readFileSync(path.join(__dirname, '..', 'components', 'runtime.tsx'), 'utf8');
+ const styleSource = fs.readFileSync(path.join(__dirname, 'globals.css'), 'utf8');
+ 
+@@ -29,7 +30,7 @@ test('model settings show readable layer candidates after loading provider model
+ 
+ test('script output is promoted to a readable asset surface after generation', () => {
+   assert.match(source, /function revealScriptOutput\(\)/);
+-  assert.match(source, /setActiveTab\(nextScriptPatch \|\| nextScriptAsset \? 'script' : 'overview'\)/);
++  assert.match(source, /focusStudioStage\(stage\)/);
+   assert.match(source, /className="studio-inspector-panel script-review-panel"/);
+   assert.match(source, /className="script-output"/);
+ });
+@@ -54,9 +55,9 @@ test('asset selection updates the main file surface without opening inspector',
+ });
+ 
+ test('draft missions use a focused surface until generated assets exist', () => {
+-  assert.match(source, /const hasWorkspaceAssets = Boolean\(\s*workspace\?\.files\.some\(\(file\) => !isInternalWorkspaceFile\(file\.path\) && file\.path !== '\.aigc\/MEMORY\.md'\)\s*\)/);
++  assert.match(source, /const hasWorkspaceAssets = Boolean\(\s*proposedWorkspace\?\.files\.some\(\(file\) => !isInternalWorkspaceFile\(file\.path\) && file\.path !== '\.aigc\/MEMORY\.md'\)\s*\)/);
+   assert.doesNotMatch(source, /workspace\.files\.length > 1/);
+-  assert.match(source, /const hasOutput = Boolean\(lastRun\) \|\| hasWorkspaceAssets/);
++  assert.match(source, /const hasOutput = hasWorkspaceAssets/);
+   assert.match(source, /const focusMode = hasUserConversation && !hasOutput/);
+   assert.match(source, /focusMode \? \(/);
+   assert.match(source, /className="focus-view"/);
+@@ -165,11 +166,74 @@ test('stored workspaces require a full runtime snapshot guard', () => {
+   assert.match(source, /if \(!isWorkspaceSnapshot\(parsed\)\) return null/);
+ });
+ 
+-test('stage confirmation consumes its assets and writes the flow through one workspace update', () => {
+-  assert.match(source, /function confirmProductionStage\(stage: ProductionStageId, outputFiles: string\[\]\)/);
+-  assert.match(source, /setWorkspace\(\(current\) => \{/);
+-  assert.match(source, /return confirmStageInWorkspace\(current, \{/);
+-  assert.match(source, /outputFiles/);
++test('stage confirmation uses the transaction workspace as the downstream base', () => {
++  assert.match(source, /const transaction = confirmStageInWorkspace\(workspace, \{/);
++  assert.match(source, /outputFiles: stageConfig\(stage\)\.outputFiles/);
++  assert.match(source, /setWorkspace\(transaction\.workspace\)/);
++  assert.match(source, /requestStageDraft\(nextStage, transaction\.workspace, nextJobId\)/);
++});
++
++test('stage confirmation consumes drafts and starts exactly one downstream job', () => {
++  assert.match(source, /async function confirmProductionStage\(stage: ProductionStageId\)/);
++  assert.match(source, /validateStageAssets\(stage, proposedWorkspace\)/);
++  assert.match(source, /confirmStageInWorkspace\(workspace/);
++  assert.match(source, /expectedDraftVersion/);
++  assert.match(source, /confirmationKey/);
++  assert.match(source, /requestStageDraft\(nextStage/);
++});
++
++test('downstream confirmation and request share exact stage source versions', () => {
++  assert.match(source, /const nextSourceVersions = nextStage \? sourceVersionsForStage\(proposedWorkspace, nextStage\) : \{\}/);
++  assert.match(source, /sourceVersions: nextSourceVersions/);
++  assert.match(source, /requestStageDraft\(nextStage, transaction\.workspace, nextJobId\)/);
++  assert.match(source, /const nextFlow = beginStageGeneration\(flow, stage, generationJobId, sourceVersions\)/);
++  assert.match(source, /generationWorkspace = nextFlow === flow \? baseWorkspace : writeProductionFlow\(baseWorkspace, nextFlow\)/);
++  assert.match(stageGenerationSource, /character: \['script\.md'\]/);
++  assert.match(stageGenerationSource, /scene: \['script\.md', 'characters\.json'\]/);
++});
++
++test('stage confirmation has an atomic in-flight gate and confirmed repeats are no-ops', () => {
++  assert.match(source, /const confirmationInFlightRef = useRef\(new Set<string>\(\)\)/);
++  assert.match(source, /confirmationInFlightRef\.current\.has\(confirmationKey\)/);
++  assert.match(source, /confirmationInFlightRef\.current\.add\(confirmationKey\)/);
++  assert.match(source, /finally \{\s*confirmationInFlightRef\.current\.delete\(confirmationKey\)/);
++  assert.match(source, /record\.status !== 'ready_for_review'/);
++});
++
++test('late stage responses are rejected before their patches become visible', () => {
++  assert.match(source, /completeStageGeneration\(/);
++  assert.match(source, /const stageGenerationJobRef = useRef\(new Map<ProductionStageId, string>\(\)\)/);
++  assert.match(source, /stageGenerationJobRef\.current\.get\(stage\) !== generationJobId/);
++  assert.match(source, /if \(!completion\.accepted\) return current/);
++  assert.match(source, /appendPendingPatches\(current, scopedPatches\)/);
++});
++
++test('autopilot never merges production stage patches', () => {
++  assert.match(source, /!isProductionStageFile\(patch\.filePath\)/);
++});
++
++test('generic patch controls cannot bypass production stage confirmation', () => {
++  assert.match(source, /function productionStageForFile\(filePath: string\): ProductionStageId \| null/);
++  assert.match(source, /const productionStages = new Set\(patches\.map\(\(patch\) => productionStageForFile\(patch\.filePath\)\)\.filter\(/);
++  assert.match(source, /void confirmProductionStage\(productionStage\)/);
++  assert.match(source, /生产阶段 patch 不能与其它 patch 一起合并/);
++  assert.match(source, /生产阶段 patch 不能通过通用队列拒绝/);
++  assert.match(source, /void confirmProductionStage\(productionStage\);\s+return;[\s\S]*?consumePendingPatches\(/);
++});
++
++test('all visible production confirmation and regeneration controls use stage transactions', () => {
++  assert.match(source, /onClick=\{\(\) => void confirmProductionStage\('character'\)\}/);
++  assert.match(source, /function regenerateProductionStage\(node: StudioCanvasNode\)/);
++  assert.match(source, /const revision = flow\.stages\[stage\]\.status === 'confirmed'/);
++  assert.match(source, /requestStageDraft\(stage, workspace, undefined, node\.action, messages\.slice\(-10\), revision\)/);
++  assert.match(source, /selectCanvasNode\(node\);\s+regenerateProductionStage\(node\);/);
++});
++
++test('an older request cannot clear loading while a newer request remains active', () => {
++  assert.match(source, /const activeStageGenerationCountRef = useRef\(0\)/);
++  assert.match(source, /activeStageGenerationCountRef\.current \+= 1/);
++  assert.match(source, /activeStageGenerationCountRef\.current = Math\.max\(0, activeStageGenerationCountRef\.current - 1\)/);
++  assert.match(source, /setLoading\(activeStageGenerationCountRef\.current > 0\)/);
+ });
+ 
+ test('video generation status keeps polling until the provider reaches a terminal state', () => {
+@@ -221,10 +285,9 @@ test('node-level revision is scoped to the selected production asset', () => {
+   assert.match(source, /必须保持其它节点的既有内容不变/);
+   assert.match(source, /const \[selectedNodeId, setSelectedNodeId\] = useState\('node_mission'\)/);
+   assert.match(source, /const \[nodeRevisionText, setNodeRevisionText\] = useState\(''\)/);
+-  assert.match(source, /nodeRevisionNode/);
+-  assert.match(source, /patchTouchesNode\(patch, nodeRevisionNode\)/);
+-  assert.match(source, /不要顺手重写 script\.md/);
+-  assert.match(source, /nodeRevisionNode\.stage/);
++  assert.match(source, /const stage: ProductionStageId = selectedNode\.stage === 'overview' \? 'script' : selectedNode\.stage/);
++  assert.match(source, /requestStageDraft\(stage, workspace, undefined, revisionText/);
++  assert.match(source, /markStageDraft\(flow, \{ stage, generationJobId, sourceVersions \}\)/);
+   assert.match(source, /提交节点修改/);
+   assert.match(source, /当前节点 patch/);
+ });
+

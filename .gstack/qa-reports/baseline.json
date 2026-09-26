@@ -1,0 +1,27 @@
+{
+  "generatedAt": "2026-07-12T13:08:28+08:00",
+  "target": "http://localhost:3000",
+  "status": "pass",
+  "healthScore": 98,
+  "blockingDefects": 0,
+  "openProductDefects": 0,
+  "fixedDefects": 10,
+  "verification": {
+    "tests": { "passed": 180, "failed": 0, "skipped": 0 },
+    "typecheck": "pass",
+    "build": "pass",
+    "browserFlow": "pass",
+    "runtimeExceptions": 0,
+    "failedRequests": 0,
+    "acceptanceFailures": 0,
+    "desktopViewport": "1440x1000",
+    "mobileViewport": "390x844",
+    "scenes": 12,
+    "storyboards": 12,
+    "videoTasks": 12
+  },
+  "verificationBoundaries": [
+    "No paid live image generation was submitted",
+    "No paid live video generation was submitted"
+  ]
+}

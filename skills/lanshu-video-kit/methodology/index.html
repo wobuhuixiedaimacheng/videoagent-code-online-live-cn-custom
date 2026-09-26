@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>方法论 · 21 篇写作 SOP · lanshu-awesome-ai-video-kit</title>
+<meta name="description" content="21 篇 AI 视频提示词写作 SOP。基础 / 进阶 / 分镜 / 情绪 / 跨模型 / 4 开源速查 / 各家 Masterclass / Gemini Omni 公式 / 写实角色一致性大师课 / 玩法集合 FPV 航拍路径绘制。">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<!-- 全站统一主题(与主页保持一致) -->
+<link rel="stylesheet" href="/assets/site-theme.css">
+
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  .wrap { position: relative; z-index: 1; max-width: 1100px; margin: 0 auto; padding: 0 24px; }
+
+  /* ============= Hero ============= */
+  .hero { padding: 140px 0 36px; text-align: center; }
+  .hero-eyebrow {
+    display: inline-block;
+    font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--accent); font-weight: 600;
+    padding: 6px 14px; border-radius: var(--r-full);
+    background: var(--accent-soft);
+    border: 1px solid var(--glass-border);
+  }
+  .hero h1 {
+    font-size: clamp(32px, 5vw, 48px);
+    font-weight: 800; line-height: 1.15;
+    margin-top: 20px;
+    letter-spacing: -0.02em;
+    color: var(--text-primary);
+  }
+  .hero h1 .grad {
+    background: linear-gradient(135deg, var(--accent), #f472b6);
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .hero p {
+    margin-top: 14px;
+    color: var(--text-secondary); font-size: 16px; line-height: 1.6;
+    max-width: 640px; margin-left: auto; margin-right: auto;
+  }
+  .stats { margin-top: 26px; display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  .stat {
+    padding: 10px 16px; border-radius: var(--r-md);
+    background: var(--glass-1); border: 1px solid var(--glass-border);
+    font-size: 13px; color: var(--text-secondary);
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  }
+  .stat b { color: var(--text-primary); font-weight: 700; }
+
+  /* ============= Doc cards ============= */
+  .section { padding: 36px 0; }
+  .section-title {
+    font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--text-muted); font-weight: 600;
+    margin-bottom: 16px;
+    padding-left: 4px;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 14px;
+  }
+  .card {
+    display: block;
+    padding: 22px 22px 20px;
+    background: var(--glass-1);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--r-md);
+    text-decoration: none;
+    color: var(--text-primary);
+    transition: all .2s;
+    position: relative;
+    overflow: hidden;
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  }
+  .card::before {
+    content: '';
+    position: absolute; inset: 0;
+    background: linear-gradient(135deg, var(--accent-soft), transparent 50%);
+    opacity: 0; transition: opacity .25s;
+    pointer-events: none;
+  }
+  .card:hover {
+    background: var(--glass-2);
+    border-color: var(--glass-border-strong);
+    transform: translateY(-2px);
+  }
+  .card:hover::before { opacity: 1; }
+  .card-num {
+    display: inline-block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; font-weight: 600;
+    color: var(--accent);
+    padding: 3px 8px; border-radius: 6px;
+    background: var(--accent-soft);
+    margin-bottom: 10px;
+  }
+  .card-title {
+    font-size: 16px; font-weight: 700;
+    margin-bottom: 6px;
+    letter-spacing: -0.01em;
+    color: var(--text-primary);
+  }
+  .card-title .star { color: #facc15; margin-left: 4px; }
+  .card-desc {
+    font-size: 13px; line-height: 1.55;
+    color: var(--text-secondary);
+  }
+  .card-meta {
+    margin-top: 14px;
+    display: flex; align-items: center; gap: 10px;
+    font-size: 12px; color: var(--text-muted);
+  }
+
+  /* ============= Footer ============= */
+  footer {
+    margin-top: 80px; padding: 30px 0;
+    border-top: 1px solid var(--glass-border);
+    text-align: center;
+    font-size: 13px; color: var(--text-muted);
+    position: relative; z-index: 1;
+  }
+  footer a { color: var(--accent); text-decoration: none; }
+  footer a:hover { text-decoration: underline; }
+
+  @media (max-width: 640px) {
+    .hero { padding: 110px 0 24px; }
+    .grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ============= 全站统一 nav(漂浮胶囊) ============= -->
+<nav class="top">
+  <a class="brand" href="../">
+    <span class="brand-dot"></span>
+    <span>lanshu-video-kit</span>
+  </a>
+  <a class="nav-link active" href="./">📖 Methodology</a>
+  <a class="nav-link" href="../prompts/">📚 Prompts</a>
+  <a class="nav-link" href="../skills/">🛠️ Skills</a>
+  <a class="nav-link" href="../tools/prompt-browser/">🌐 Browser</a>
+  <a class="nav-link" href="../tools/cross-model/">🔀 Matrix</a>
+  <a class="nav-link cta" href="../">⌂ 主页</a>
+  <button class="nav-icon-btn" id="themeToggle" title="切换主题" aria-label="切换主题">
+    <svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+    </svg>
+  </button>
+</nav>
+
+<!-- ============= Hero ============= -->
+<section class="hero">
+  <div class="wrap">
+    <div class="hero-eyebrow">📖 Methodology</div>
+    <h1>21 篇<span class="grad">AI 视频写作 SOP</span></h1>
+    <p>从火山方舟 53 页 PDF + Kling 5 层公式 + OpenAI Cookbook + Google DeepMind + 4 大开源仓库 提炼。覆盖基础公式到 15 模型选型决策树。</p>
+    <div class="stats">
+      <div class="stat">📚 <b>21</b> 篇</div>
+      <div class="stat">⏱️ 单篇 <b>3-12</b> 分钟</div>
+      <div class="stat">🎯 覆盖 <b>15</b> 模型</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============= 01-08 通用 / Seedance ============= -->
+<section class="section">
+  <div class="wrap">
+    <div class="section-title">基础 · 通用 / Seedance 体系 (01-08)</div>
+    <div class="grid">
+      <a class="card" href="../viewer.html?file=methodology/01-基础公式.md">
+        <span class="card-num">01</span>
+        <div class="card-title">基础公式</div>
+        <div class="card-desc">4 种任务类型怎么选(多模态参考 / 编辑 / 延长 / 组合)</div>
+        <div class="card-meta">⏱️ 3 分钟</div>
+      </a>
+      <a class="card" href="../viewer.html?file=methodology/02-进阶公式.md">
+        <span class="card-num">02</span>
+        <div class="card-title">进阶公式</div>
+        <div class="card-desc">8 要素拼接出"工程级"提示词的骨架</div>
+        <div class="card-meta">⏱️ 8 分钟</div>
+      </a>
+      <a class="card" href="../viewer.html?file=methodology/03-分镜时序.md">
+        <span class="card-num">03</span>
+        <div class="card-title">分镜时序</div>
+        <div class="card-desc">复杂剧情拆成"镜头 1 / 镜头 2 / 镜头 3"</div>
+        <div class="card-meta">⏱️ 5 分钟</div>
+      </a>
+      <a class="card" href="../viewer.html?file=methodology/04-情绪外化表.md">
+        <span class="card-num">04</span>
+        <div class="card-title">情绪外化表</div>
+        <div class="card-desc">用动作细节替代"很悲伤" — 让模型出影像而非概念</div>
+        <div class="card-meta">⏱️ 3 分钟</div>
+      </a>
+      <a class="card" href="../viewer.html?file=methodology/05-运镜词典.md">
+        <span class="card-num">05</span>
+        <div class="card-title">运镜词典</div>
+        <div class="card-desc">镜头 / 灯光 / 风格关键词速查(中英对照)</div>
+        <div class="card-meta">📑 速查</div>
+      </a>
+      <a class="card" href="../viewer.html?file=methodology/06-约束词清单.md">
+        <span class="card-num">06</span>
+        <div class="card-title">约束词清单</div>
+        <div class="card-desc">怎么不让模型生成字幕 / Logo / 水印</div>
+        <div class="card-meta">📑 速查</div>
+      </a>
+      <a class="card" href="../viewer.html?file=methodology/07-特殊字符规范.md">
+        <span class="card-num">07</span>
+        <div class="card-title">特殊字符规范</div>
+        <div class="card-desc">音乐 () / 音效 &lt;&gt; / 台词 {} / 字幕【】的正确写法</div>
+        <div class="card-meta">⏱️ 1 分钟</div>
+      </a>
+      <a class="card" href="../viewer.html?file=methodology/08-避坑12问.md">
+        <span class="card-num">08</span>
+        <div class="card-title">避坑 12 问</div>
+        <div class="card-desc">12 类常见问题:现象 → 根因 → 解法</div>
+        <div class="card-meta">📑 按需</div>
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- ============= 09-13 商业模型 ============= -->
+<section class="section">
+  <div class="wrap">
+    <div class="section-title">商业模型专题 · 11 模型 (09-13)</div>
+    <div class="grid">
+      <a class="card" href="../viewer.html?file=methodology/09-kling-公式.md">
+        <span class="card-num">09</span>
+        <div class="card-title">Kling 公式</div>
+        <div class="card-desc">Kling 3.0 三套写法(4 部分 / 5 层 / 图生视频)+ 6 条守则</div>
+        <div class="card-meta">⏱️ 8 分钟</div>
+      </a>
+      <a class="card" href="../viewer.html?file=methodology/10-跨模型对比.md">
+        <span class="card-num">10</span>
+        <div class="card-title">跨模型对比 <span class="star">⭐</span></div>
+        <div class="card-desc">五大模型选型决策树 + 同需求 × 5 模型写法对照</div>
+        <div class="card-meta">⏱️ 10 分钟</div>
+      </a>
+      <a class="card" href="../viewer.html?file=methodology/11-sora-公式.md">
+        <span class="card-num">11</span>
+        <div class="card-title">Sora 公式</div>
+        <div class="card-desc">Sora 2 两套官方写法 — 分层 Shot List + 超精细参数化</div>
+        <div class="card-meta">⏱️ 7 分钟</div>
+      </a>
+      <a class="card" href="../viewer.html?file=methodology/12-veo-公式.md">
+        <span class="card-num">12</span>
+        <div class="card-title">Veo 公式</div>
+        <div class="card-desc">Veo 3.1 8 元素 + 原生音频 4 层(Dialogue: + Audio:)</div>
+        <div class="card-meta">⏱️ 6 分钟</div>
+      </a>
+      <a class="card" href="../viewer.html?file=methodology/13-六大模型公式速查.md">
+        <span class="card-num">13</span>
+        <div class="card-title">六大模型公式速查 <span class="star">⭐</span></div>
+        <div class="card-desc">Runway / Pika / Hailuo / Hunyuan / Wan / 即梦 一锅端 + 11 模型选型</div>
+        <div class="card-meta">⏱️ 12 分钟</div>
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- ============= 14 开源 ============= -->
+<section class="section">
+  <div class="wrap">
+    <div class="section-title">开源模型专题 · 4 模型 (14)</div>
+    <div class="grid">
+      <a class="card" href="../viewer.html?file=methodology/14-四大开源模型速查.md">
+        <span class="card-num">14</span>
+        <div class="card-title">四大开源模型速查 <span class="star">⭐</span></div>
+        <div class="card-desc">LTX(实时单段 prose)/ Mochi(强 prompt 遵循)/ CogVideoX(长 prompt 高分辨率)/ Higgsfield(Soul ID + DoP)+ 15 模型完整选型决策树</div>
+        <div class="card-meta">⏱️ 12 分钟</div>
+      </a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p>📖 20 篇方法论 · 火山方舟 PDF + Kling 官方 + 8 大社区 + 4 开源仓库 + 67+ YouTube 教学(累计 13M+ 播放)+ Google AI 官方</p>
+    <p style="margin-top:8px"><a href="../">← 返回主页</a> · <a href="../viewer.html?file=README.md">README</a> · <a href="../viewer.html?file=RESOURCES.md">RESOURCES</a></p>
+  </div>
+</footer>
+
+<script src="/assets/site-theme.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.DS_Store
+*.log
+
+# Local parser artifacts
+parsed.json
+raw_lines.jsonl
+scripts/script_temp.txt
+scripts/structured_data*.json

@@ -1,0 +1,243 @@
+/* ================================================================
+ * lanshu-awesome-ai-video-kit · 全站统一主题(Liquid Glass)
+ * 与主页 index.html 完全一致的视觉系统:
+ *   - CSS variables (dark/light tokens)
+ *   - Mesh gradient background + noise overlay
+ *   - Floating capsule nav (.top + .nav-link + .nav-icon-btn)
+ *   - Theme toggle via [data-theme="light"]
+ * 配套 JS: /assets/site-theme.js
+ * ================================================================ */
+
+:root {
+  --bg-base: #06050b;
+  --bg-mesh-1: hsl(258, 75%, 22%);
+  --bg-mesh-2: hsl(330, 75%, 20%);
+  --bg-mesh-3: hsl(195, 65%, 18%);
+  --bg-mesh-4: hsl(48, 70%, 18%);
+
+  /* Liquid Glass surfaces */
+  --glass-1: rgba(255, 255, 255, 0.03);
+  --glass-2: rgba(255, 255, 255, 0.05);
+  --glass-3: rgba(255, 255, 255, 0.08);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-border-strong: rgba(255, 255, 255, 0.14);
+  --glass-highlight: rgba(255, 255, 255, 0.12);
+
+  /* Text */
+  --text-primary: rgba(255, 255, 255, 0.98);
+  --text-secondary: rgba(255, 255, 255, 0.66);
+  --text-muted: rgba(255, 255, 255, 0.42);
+  --text-disabled: rgba(255, 255, 255, 0.24);
+
+  /* Accent */
+  --accent: #a78bfa;
+  --accent-hover: #c4b5fd;
+  --accent-soft: rgba(167, 139, 250, 0.15);
+  --accent-glow: rgba(167, 139, 250, 0.5);
+
+  /* 15 模型色 */
+  --m-sd: #fb923c; --m-hh: #38bdf8; --m-kl: #f472b6;
+  --m-so: #34d399; --m-ve: #facc15; --m-rw: #c084fc;
+  --m-pk: #fda4af; --m-hl: #5eead4; --m-hy: #93c5fd;
+  --m-wn: #fcd34d; --m-jm: #f9a8d4;
+  --m-lt: #a3e635; --m-mo: #fb7185; --m-cg: #60a5fa; --m-hg: #e879f9;
+
+  /* Radius */
+  --r-sm: 8px; --r-md: 14px; --r-lg: 22px; --r-xl: 32px; --r-full: 999px;
+
+  /* Liquid Glass shadows */
+  --shadow-glass:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.04),
+    0 1px 2px rgba(0, 0, 0, 0.2),
+    0 8px 24px rgba(0, 0, 0, 0.3),
+    0 24px 64px -8px rgba(0, 0, 0, 0.4);
+  --shadow-glass-hover:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+    0 16px 40px rgba(0, 0, 0, 0.4),
+    0 40px 100px -16px rgba(0, 0, 0, 0.5);
+}
+
+[data-theme="light"] {
+  --bg-base: #f5f3ff;
+  --bg-mesh-1: hsl(258, 90%, 88%);
+  --bg-mesh-2: hsl(330, 85%, 92%);
+  --bg-mesh-3: hsl(195, 75%, 90%);
+  --bg-mesh-4: hsl(48, 90%, 92%);
+  --glass-1: rgba(255, 255, 255, 0.45);
+  --glass-2: rgba(255, 255, 255, 0.65);
+  --glass-3: rgba(255, 255, 255, 0.8);
+  --glass-border: rgba(0, 0, 0, 0.06);
+  --glass-border-strong: rgba(0, 0, 0, 0.12);
+  --glass-highlight: rgba(255, 255, 255, 0.9);
+  --text-primary: rgba(15, 12, 25, 0.92);
+  --text-secondary: rgba(15, 12, 25, 0.6);
+  --text-muted: rgba(15, 12, 25, 0.4);
+  --text-disabled: rgba(15, 12, 25, 0.25);
+  --accent: #7c3aed;
+  --accent-hover: #6d28d9;
+  --accent-soft: rgba(124, 58, 237, 0.12);
+  --accent-glow: rgba(124, 58, 237, 0.35);
+  --shadow-glass:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.4),
+    0 1px 2px rgba(0, 0, 0, 0.04),
+    0 8px 24px rgba(0, 0, 0, 0.08),
+    0 24px 64px -8px rgba(0, 0, 0, 0.12);
+  --shadow-glass-hover:
+    inset 0 1px 0 rgba(255, 255, 255, 1),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.6),
+    0 16px 40px rgba(0, 0, 0, 0.15),
+    0 40px 100px -16px rgba(0, 0, 0, 0.2);
+}
+
+html, body {
+  font-family: 'Inter', system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  background: var(--bg-base);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: 'cv11', 'ss01';
+  overflow-x: hidden;
+}
+body { min-height: 100vh; position: relative; }
+
+/* ============= Animated mesh background ============= */
+body::before {
+  content: '';
+  position: fixed;
+  inset: -10vh -10vw;
+  background:
+    radial-gradient(45% 55% at 12% 8%, var(--bg-mesh-1) 0%, transparent 60%),
+    radial-gradient(40% 50% at 88% 4%, var(--bg-mesh-2) 0%, transparent 55%),
+    radial-gradient(55% 45% at 50% 100%, var(--bg-mesh-3) 0%, transparent 60%),
+    radial-gradient(40% 40% at 80% 70%, var(--bg-mesh-4) 0%, transparent 50%);
+  pointer-events: none;
+  z-index: 0;
+  animation: meshDrift 30s ease-in-out infinite alternate;
+}
+@keyframes meshDrift {
+  0% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(-2%, -1%) scale(1.05); }
+  100% { transform: translate(2%, 1%) scale(1); }
+}
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence baseFrequency='0.9'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.06 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.35;
+  mix-blend-mode: overlay;
+}
+
+/* ============= Floating capsule nav ============= */
+nav.top {
+  position: fixed;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px 6px 16px;
+  background: var(--glass-2);
+  backdrop-filter: saturate(180%) blur(28px);
+  -webkit-backdrop-filter: saturate(180%) blur(28px);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--r-full);
+  box-shadow: var(--shadow-glass);
+  max-width: calc(100vw - 32px);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+nav.top::-webkit-scrollbar { display: none; }
+
+nav.top .brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--text-primary);
+  text-decoration: none;
+  letter-spacing: -0.01em;
+  padding-right: 12px;
+  border-right: 1px solid var(--glass-border);
+  margin-right: 4px;
+  white-space: nowrap;
+  transition: opacity .15s;
+}
+nav.top .brand:hover { opacity: 0.78; }
+nav.top .brand-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #a78bfa, #f472b6);
+  box-shadow: 0 0 12px var(--accent-glow);
+  animation: brandPulse 2.4s ease-in-out infinite;
+}
+@keyframes brandPulse {
+  0%, 100% { box-shadow: 0 0 8px var(--accent-glow); transform: scale(1); }
+  50% { box-shadow: 0 0 16px var(--accent-glow), 0 0 24px var(--accent-glow); transform: scale(1.15); }
+}
+
+nav.top .nav-link {
+  padding: 7px 13px;
+  border-radius: var(--r-full);
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-size: 12.5px;
+  font-weight: 500;
+  transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+  white-space: nowrap;
+}
+nav.top .nav-link:hover {
+  color: var(--text-primary);
+  background: var(--glass-3);
+}
+nav.top .nav-link.active {
+  color: var(--text-primary);
+  background: var(--accent-soft);
+  font-weight: 600;
+}
+nav.top .nav-link.cta {
+  background: var(--accent);
+  color: #fff;
+  margin-left: 4px;
+  box-shadow: 0 0 16px var(--accent-glow);
+}
+nav.top .nav-link.cta:hover {
+  background: var(--accent-hover);
+  color: #fff;
+}
+
+nav.top .nav-icon-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--r-full);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.18s;
+}
+nav.top .nav-icon-btn:hover {
+  background: var(--glass-3);
+  color: var(--text-primary);
+}
+nav.top .nav-icon-btn svg { width: 14px; height: 14px; }
+
+@media (max-width: 740px) {
+  nav.top { padding: 4px 6px 4px 12px; gap: 2px; }
+  nav.top .brand { padding-right: 8px; margin-right: 2px; font-size: 12px; }
+  nav.top .nav-link { padding: 6px 10px; font-size: 11.5px; }
+}

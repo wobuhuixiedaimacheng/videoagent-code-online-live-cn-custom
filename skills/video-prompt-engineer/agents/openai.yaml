@@ -1,0 +1,4 @@
+interface:
+  display_name: "Video Prompt Engineer"
+  short_description: "把定稿剧本转换为Seedance文字分镜与视频提示词"
+  default_prompt: "Use $video-prompt-engineer to convert this finalized script fragment into Seedance-oriented 10-15 second text storyboards with internal shots."
